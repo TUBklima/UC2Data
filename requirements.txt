@@ -1,0 +1,10 @@
+cfchecker==3.1.1
+cftime==1.0.3.4
+cfunits==3.0.0
+netCDF4==1.5.1.2
+numpy==1.16.4
+pandas==0.24.2
+python-dateutil==2.8.0
+pytz==2019.1
+six==1.12.0
+xarray==0.12.1
