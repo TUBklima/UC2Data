@@ -3,6 +3,7 @@ import numpy
 import sys
 import enum
 import csv
+import re
 
 is_win = sys.platform in ['win32', 'win64']
 if not is_win:
@@ -10,6 +11,7 @@ if not is_win:
 
 data_content_file = "data_content.txt"
 variables_file = "variables.txt"
+institutions_file = "institutions.txt"
 
 
 class UC2Data(xarray.Dataset):
@@ -21,31 +23,69 @@ class UC2Data(xarray.Dataset):
         self.update(tmp, inplace=True)
         self.attrs = tmp.attrs
 
-    def has_var(self, varname):
-        return varname in self.variables.keys()
-
-    def has_dim(self, dimname):
-        return dimname in self.dims.keys()
-
-    def has_glob_attr(self, attrname):
-        return attrname in self.attrs.keys()
-
     def uc2_check(self):
-        CheckRules = get_check_rules(self)
 
-        for ikey in CheckRules.keys():
-            CheckRules[ikey].check(CheckRules)
-            print(str(CheckRules[ikey].result) + ' (' + ikey + ')')
+        allowed_data_contents = get_allowed_data_contents(data_content_file, variables_file)
+        allowed_institutions = get_allowed_institutions(institutions_file)
+        allowed_licences = get_allowed_licences()
 
+        ###
+        # Check global attributes
+        ###
+        result = dict()
+        result["title"] = self.check_glob_attr("title", True, str)
+        result["data_content"] = self.check_glob_attr("data_content", True, str, allowed_values=allowed_data_contents) # TODO: Redo this test when variable is checked
+        result["source"] = self.check_glob_attr("source", True, str)
+        result["version"] = self.check_glob_attr("version", True, [int, numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.int64], allowed_values=list(range(1,1000))) # TODO: This ist going to be checked in DMS
+        result["Conventions"] = self.check_glob_attr("Conventions", True, str, allowed_values=["CF-1.7"])
+        result["dependencies"] = self.check_glob_attr("dependencies", True, str) # TODO: This is going to be checked by DMS
+        result["history"] = self.check_glob_attr("history", True, str)
+        result["institution"] = self.check_glob_attr("institution", True, str) # TODO: Check with acronym
+        result["acronym"] = self.check_glob_attr("acronym", True, str)  # TODO: Check with institution
+        result["author"] = self.check_glob_attr("author", True, str)  # TODO: regex
+        result["contact_person"] = self.check_glob_attr("contact_person", True, str)  # TODO: regex
+        result["references"] = self.check_glob_attr("references", True, str)
+        result["comment"] = self.check_glob_attr("comment", True, str)
+        result["keywords"] = self.check_glob_attr("keywords", True, str)
+        result["licence"] = self.check_glob_attr("licence", True, str, allowed_values=allowed_licences)
 
-class Variable:
+        return result
+        # CheckRules = get_check_rules(self)
+        #
+        # for ikey in CheckRules.keys():
+        #     CheckRules[ikey].check(CheckRules)
+        #     print(str(CheckRules[ikey].result) + ' (' + ikey + ')')
 
-    def __init__(self, variables, name):
-        self.var = variables[name]
-        self.name = name
+    def check_glob_attr(self, attrname, must_exist, allowed_types, allowed_values=[], regex=None):
+        exists = attrname in self.attrs.keys()
+        if not exists:
+            if must_exist:
+                return CheckResult(ResultCode.ERROR, "Required global attribute '" + attrname + "' not found.")
+            else:
+                return CheckResult(ResultCode.OK, "Global attribute '" + attrname + "' not found.")
 
-    def has_attr(self, attrname):
-        return attrname in self.var.attrs.keys()
+        if not type(allowed_types) == list:
+            allowed_types = [allowed_types]
+        if len(allowed_types) > 0:
+            if not type(self.attrs[attrname]) in allowed_types:
+                return CheckResult(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong type. Should be " + \
+                                   "one of the following: " + str(allowed_types))
+
+        if not type(allowed_values) == list:
+            allowed_values = [allowed_values]
+        if len(allowed_values) > 0:
+            if not self.attrs[attrname] in allowed_values:
+                if len(allowed_values) == 1:
+                    return CheckResult(ResultCode.ERROR,
+                                       "Global attribute '" + attrname + "' has wrong value. Should be " + \
+                                       str(allowed_values[0]))
+                else:
+                    return CheckResult(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong value")
+
+        if not regex is None:
+            pass # TODO: check regular expression (e.g. author)
+
+        return CheckResult(ResultCode.OK, "Test passed.")
 
 
 class ResultCode(enum.Enum):
@@ -64,115 +104,31 @@ class CheckResult:
         return self.message
 
 
-class Check:
-
-    def __init__(self, do_check, func, param, msg, severity, group):
-        self.do_check = do_check
-        self.func = func
-        self.param = param
-        self.msg = msg
-        self.severity = severity
-        self.group = group
-        self.result = None
-
-    def check(self, other_checks):
-
-        if type(self.do_check) == bool:
-            do_check = self.do_check
-        else:
-            do_check = other_checks[self.do_check].check(other_checks)
-
-        if not do_check:
-            return False
-
-        if type(self.func) == bool:
-            if self.func:
-                self.result = CheckResult(ResultCode.OK, "Test passed.", self.group)
-            else:
-                self.result = CheckResult(self.severity, self.msg, self.group)
-        else:
-            if self.func(*self.param):
-                self.result = CheckResult(ResultCode.OK, "Test passed.", self.group)
-            else:
-                self.result = CheckResult(self.severity, self.msg, self.group)
-        return self.result.result != ResultCode.ERROR
-
-    def __str__(self):
-        return self.result
-
-
-def type_okay(var, allowed_types):
-    return type(var) in allowed_types
-
-
-def data_content_okay(value):
+def get_allowed_data_contents(data_content_file, variables_file):
+    out = []
     with open(data_content_file) as csvfile:
         spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
         for row in spamreader:
-            if value == row[1]:
-                return True
+            out.append(row[1])
 
     with open(variables_file) as csvfile:
         spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
         for row in spamreader:
-            if value == row[3]:
-                return True
+            out.append(row[3])
+
+    return out
 
 
-def check_glob_attr(data, attrname, must_exist, allowed_types, exact_value):
-    exists = attrname in data.attrs.keys()
-    if not exists:
-        if must_exist:
-            return CheckResult(ResultCode.ERROR, "Required global attribute '" + attrname + "' not found.")
-        else:
-            return CheckResult(ResultCode.OK, "Global attribute '" + attrname + "' not found.")
-
-    if len(allowed_types) > 0:
-        if not type(data.attrs[attrname]) in allowed_types:
-            return CheckResult(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong type. Should be " + \
-                "one of the following: " + str(allowed_types))
-
-    if len(exact_value) > 0:
-        if data.attrs[attrname] != exact_value:
-            return CheckResult(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong value. Should be " + \
-                str(exact_value))
-
-    return CheckResult(ResultCode.OK, "Test passed.")
+def get_allowed_institutions(institutions_file):
+    pass
 
 
-def get_check_rules(data):
-    CheckRules = dict()
-    CheckRules["title_exists"] = Check(True, UC2Data.has_glob_attr, (data, "title"),
-                                       "Global attribute 'title' expected. Not found.", ResultCode.ERROR,
-                                       "obligatory global attributes")
-    CheckRules["title_is_string"] = Check("title_exists", type_okay, (data.attrs["title"], [str]),
-                                          "Global attribute 'title' must be string.", ResultCode.ERROR,
-                                          "obligatory global attributes")
-    CheckRules["data_content_exists"] = Check(True, UC2Data.has_glob_attr, (data, "data_content"),
-                                              "Global attribute 'data_content' expected. Not found.", ResultCode.ERROR,
-                                              "obligatory global attributes")
-    CheckRules["data_content_okay"] = Check("data_content_exists", data_content_okay, (data.attrs["data_content"],),
-                                            "Global attribute 'data_content' has unsupported value.", ResultCode.ERROR,
-                                            "obligatory global attributes")
-    CheckRules["source_exists"] = Check(True, UC2Data.has_glob_attr, (data, "source"),
-                                        "Global attribute 'source' expected. Not found.", ResultCode.ERROR,
-                                        "obligatory global attributes")
-    CheckRules["source_is_string"] = Check("source_exists", type_okay, (data.attrs["source"], [str]),
-                                           "Global attribute 'source' must be string.", ResultCode.ERROR,
-                                           "obligatory global attributes")
-    CheckRules["version_exists"] = Check(True, UC2Data.has_glob_attr, (data, "version"),
-                                         "Global attribute 'version' expected. Not found.", ResultCode.ERROR,
-                                         "obligatory global attributes")
-    CheckRules["version_is_int"] = Check("version_exists", type_okay, (data.attrs["version"], [int, numpy.int16]),
-                                           "Global attribute 'version' must be integer.", ResultCode.ERROR,
-                                           "obligatory global attributes")
-    CheckRules["version_range"] = Check("version_is_int", data.attrs["version"] in range(1,1000), None,
-                                        "Global attribute 'version' out of allowed range (1,999)", ResultCode.ERROR,
-                                        "obligatory global attributes")
-    CheckRules["Conventions_exists"] = Check(True, UC2Data.has_glob_attr, (data, "Conventions"),
-                                         "Global attribute 'Conventions' expected. Not found.", ResultCode.ERROR,
-                                         "obligatory global attributes")
-    CheckRules["Conventions_okay"] = Check("Conventions_exists", data.attrs["Conventions"] == "CF-1.7", None,
-                                             "Global attribute 'Conventions' must be set to 'CF-1.7'.", ResultCode.ERROR,
-                                             "obligatory global attributes")
-    return CheckRules
+def get_allowed_licences():
+    return ["[UC]2 MOSAIK Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+           "[UC]2 3DO Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+           "[UC]2 KliMoPrax Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+           "[UC]2 UseUClim Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+           "[UC]2 Restriced Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+           "[UC]2 Research Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+           "[UC]2 Open Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+           ]
