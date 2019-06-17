@@ -46,6 +46,7 @@ class UC2Data(xarray.Dataset):
             allowed_sites.append(row[1])
 
     allowed_licences = [
+        "",
         "[UC]2 MOSAIK Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 3DO Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 KliMoPrax Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
@@ -144,7 +145,8 @@ class UC2Data(xarray.Dataset):
 
         result["author"] = self.check_glob_attr("author", True, str)
         if result["author"].result != ResultCode.ERROR:
-            result["author"] = check_person_field(self.attrs["author"], "author")
+            if self.attrs["author"] != "":
+                result["author"] = check_person_field(self.attrs["author"], "author")
 
         result["contact_person"] = self.check_glob_attr("contact_person", True, str)
         if result["contact_person"].result != ResultCode.ERROR:
@@ -165,6 +167,12 @@ class UC2Data(xarray.Dataset):
                     result["campaign"] = CheckResult(ResultCode.ERROR,
                                                      "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx")
 
+        ###
+        # Check dims
+        ###
+
+        # TODO: There must not be any UNLIMITED dimension.
+
 
         ###
         # Check variables
@@ -181,12 +189,15 @@ class UC2Data(xarray.Dataset):
         if featuretype == "None":
             time_dims = ("time")
             time_bounds_dims = ("time", "nv")
+            time_dim_name = "time"
         elif featuretype in ["timeSeries", "timeSeriesProfile"]:
             time_dims = ("station", "ntime")
             time_bounds_dims = ("station", "ntime", "nv")
+            time_dim_name = "ntime"
         elif featuretype == "trajectory":
             time_dims = ("trag", "ntime")
             time_bounds_dims = ("traj", "ntime", "nv")
+            time_dim_name = "ntime"
         else: raise Exception("Unexpected featureType")
 
         if is_iop:
@@ -197,7 +208,8 @@ class UC2Data(xarray.Dataset):
                 allowed_range = [.01, ndays * 24 * 60 * 60]
 
         result["time_var"] = self.check_var("time", True, [numpy.int16, numpy.int32, numpy.float],
-                                            allowed_range=allowed_range, dims=time_dims)
+                                            allowed_range=allowed_range, dims=time_dims,
+                                            must_be_sorted_along=time_dim_name, fill_allowed=featuretype != "None") # TODO: Time must be monotonically increasing or decreasi. If coordinate var, then no missing values allowed.
         if result["time_var"].result != ResultCode.ERROR:
             result["time_long_name"] = self.check_var_attr("time", "long_name", True, str, allowed_values="time")
             result["time_standard_name"] = self.check_var_attr("time", "standard_name", True, str,
@@ -205,6 +217,8 @@ class UC2Data(xarray.Dataset):
             result["time_calendar"] = self.check_var_attr("time", "calendar", True, str,
                                                           allowed_values="proleptic_gregorian")
             result["axis"] = self.check_var_attr("time", "axis", True, str, allowed_values="T")
+            result["time_fill_values"] = self.check_var_attr("time", "_FillValue", False, self.variables["time"].dtype,
+                                                             must_not_exist=featuretype == "None")
             result["time_units"] = self.check_var_attr("time", "units", True, str,
                                                        regex="seconds since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00")
             if (result["origin_time"].result != ResultCode.ERROR) & (result["time_units"].result != ResultCode.ERROR):
@@ -225,19 +239,23 @@ class UC2Data(xarray.Dataset):
         if featuretype == "None":
             z_dims = ("z")
             z_bounds_dims = ("z", "nv")
+            must_be_sorted_along = "z"
         elif featuretype == "timeSeries":
             z_dims = ("station")
             z_bounds_dims = ("station", "nv")
+            must_be_sorted_along = None
         elif featuretype == "timeSeriesProfile":
             z_dims = ("station", "ntime", "nz")
             z_bounds_dims = ("station", "ntime", "nz", "nv")
+            must_be_sorted_along = "nz"
         elif featuretype == "trajectory":
             z_dims = ("traj", "ntime")
             z_bounds_dims = ("traj", "ntime", "nv")
+            must_be_sorted_along = None
         else: raise Exception("unexpected featureType.")
 
         result["z"] = self.check_var("z", True, [numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.float, numpy.float16, numpy.float32, numpy.float64],
-                                     dims=z_dims)
+                                     dims=z_dims, must_be_sorted_along=must_be_sorted_along, fill_allowed=featuretype != "None")
         result["z_long_name"] = self.check_var_attr("z", "long_name", True, str, allowed_values="height above origin")
         result["z_axis"] = self.check_var_attr("z", "axis", True, str, allowed_values="Z")
         result["z_positive"] = self.check_var_attr("z", "positive", True, str, allowed_values="up")
@@ -264,15 +282,17 @@ class UC2Data(xarray.Dataset):
         # TODO: Check geo between var and glob att
         ###
 
+
         return result
 
-    def check_var(self, varname, must_exist, allowed_types, allowed_range=None, dims=None):
+    def check_var(self, varname, must_exist, allowed_types, allowed_range=None, dims=None,
+                  must_be_sorted_along=None, fill_allowed=True):
         exists = varname in self.variables.keys()
         if not exists:
             if must_exist:
                 return CheckResult(ResultCode.ERROR, "Required variable '" + varname + "' not found.")
             else:
-                return CheckResult(ResultCode.OK, "Variable '" + varname + "' not found.")
+                return CheckPassed
 
         if allowed_types is not None:
             if not type(allowed_types) == list:
@@ -295,6 +315,14 @@ class UC2Data(xarray.Dataset):
             if self.variables[varname].dims != dims:
                 return CheckResult(ResultCode.ERROR, "Variable '" + varname + "' has wrong dimensions. Expected: " + str(dims))
 
+        if must_be_sorted_along is not None:
+            sorted_arr = numpy.sort(self.variables[varname], axis=self.variables[varname].dims.index(must_be_sorted_along))
+            if not numpy.array_equal(self.variables[varname], sorted_arr):
+                return CheckResult(ResultCode.ERROR, "Variable '" + varname + "' must be sorted along dimension '" + must_be_sorted_along + "'")
+
+        if fill_allowed is not None:
+            pass # TODO: do it.
+
         return CheckPassed
 
     def check_var_attr(self, varname, attrname, must_exist, allowed_types, allowed_values=None, regex=None,
@@ -306,8 +334,7 @@ class UC2Data(xarray.Dataset):
                                    "Variable '" + varname + "': Required variable attribute '" + attrname + "' not found.")
             else:
                 if not must_not_exist:
-                    return CheckResult(ResultCode.OK,
-                                       "Variable '" + varname + "': Variable attribute '" + attrname + "' not found.")
+                    return CheckPassed
         else:
             if must_not_exist:
                 return CheckResult(ResultCode.ERROR,
@@ -348,7 +375,7 @@ class UC2Data(xarray.Dataset):
             if must_exist:
                 return CheckResult(ResultCode.ERROR, "Required global attribute '" + attrname + "' not found.")
             else:
-                return CheckResult(ResultCode.OK, "Global attribute '" + attrname + "' not found.")
+                return CheckPassed
 
         if not type(allowed_types) == list:
             allowed_types = [allowed_types]
