@@ -18,6 +18,43 @@ sites_file = "sites.txt"
 
 class UC2Data(xarray.Dataset):
 
+    allowed_data_contents = list()
+    with open(data_content_file, encoding="utf-8") as csvfile:
+        spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
+        for row in spamreader:
+            allowed_data_contents.append(row[1])
+
+    with open(variables_file, encoding="utf-8") as csvfile:
+        spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
+        for row in spamreader:
+            allowed_data_contents.append(row[3])
+
+    allowed_institutions = []
+    allowed_acronyms = []
+    with open(institutions_file, encoding="utf-8") as csvfile:
+        spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
+        for row in spamreader:
+            allowed_institutions.append(row[0])
+            allowed_acronyms.append(row[1])
+
+    allowed_locations = []
+    allowed_sites = []
+    with open(sites_file, encoding="utf-8") as csvfile:
+        spamreader = csv.reader(csvfile, delimiter='\t', quotechar='"')
+        for row in spamreader:
+            allowed_locations.append(row[0])
+            allowed_sites.append(row[1])
+
+    allowed_licences = [
+        "[UC]2 MOSAIK Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 3DO Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 KliMoPrax Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 UseUClim Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 Restriced Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 Research Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 Open Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        ]
+
     def __init__(self, path):
         self.path = path
         super().__init__()
@@ -27,10 +64,12 @@ class UC2Data(xarray.Dataset):
 
     def uc2_check(self):
 
-        allowed_data_contents = get_allowed_data_contents()
-        allowed_licences = get_allowed_licences()
-        allowed_institutions, allowed_acronyms = get_allowed_institutions()
-        allowed_locations, allowed_sites = get_allowed_sites()
+        allowed_data_contents = UC2Data.allowed_data_contents
+        allowed_licences = UC2Data.allowed_licences
+        allowed_institutions = UC2Data.allowed_institutions
+        allowed_acronyms = UC2Data.allowed_acronyms
+        allowed_locations = UC2Data.allowed_locations
+        allowed_sites = UC2Data.allowed_sites
 
         ###
         # Check global attributes
@@ -371,56 +410,6 @@ class CheckResult:
 
     def __str__(self):
         return self.message
-
-
-def get_allowed_data_contents():
-    out = []
-    with open(data_content_file, encoding="utf-8") as csvfile:
-        spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
-        for row in spamreader:
-            out.append(row[1])
-
-    with open(variables_file, encoding="utf-8") as csvfile:
-        spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
-        for row in spamreader:
-            out.append(row[3])
-
-    return out
-
-
-def get_allowed_institutions():
-    inst = []
-    acro = []
-    with open(institutions_file, encoding="utf-8") as csvfile:
-        spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
-        for row in spamreader:
-            inst.append(row[0])
-            acro.append(row[1])
-
-    return inst, acro
-
-
-def get_allowed_sites():
-    loc = []
-    site = []
-    with open(sites_file, encoding="utf-8") as csvfile:
-        spamreader = csv.reader(csvfile, delimiter='\t', quotechar='"')
-        for row in spamreader:
-            loc.append(row[0])
-            site.append(row[1])
-
-    return loc, site
-
-
-def get_allowed_licences():
-    return ["[UC]2 MOSAIK Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
-            "[UC]2 3DO Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
-            "[UC]2 KliMoPrax Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
-            "[UC]2 UseUClim Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
-            "[UC]2 Restriced Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
-            "[UC]2 Research Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
-            "[UC]2 Open Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
-            ]
 
 
 CheckPassed = CheckResult(ResultCode.OK, "Test passed.")
