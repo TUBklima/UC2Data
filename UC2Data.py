@@ -58,6 +58,8 @@ class UC2Data(xarray.Dataset):
         "[UC]2 Open Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         ]
 
+    featuretype = None
+
     def __init__(self, path):
         self.path = path
         super().__init__()
@@ -117,13 +119,12 @@ class UC2Data(xarray.Dataset):
                                                                          "trajectory"])
             if not result["featureType"]:
                 return result
-            featuretype = self.attrs["featureType"]
+            self.featuretype = self.attrs["featureType"]
         else:
-            featuretype = "None"
-
+            self.featuretype = "None"
 
         result["origin_z"] = self.check_glob_attr("origin_z", True, [numpy.float, numpy.float32, numpy.float64],
-                                                      allowed_values=0 if (featuretype != "None") else None)
+                                                      allowed_values=0 if (self.featuretype != "None") else None)
         result["location"] = self.check_glob_attr("location", True, str, allowed_values=allowed_locations)
         result["site"] = self.check_glob_attr("site", True, str, allowed_values=allowed_sites)
         if result["location"] and result["site"]:
@@ -187,15 +188,15 @@ class UC2Data(xarray.Dataset):
             result["vrs"]["standard_name"] = self.check_var_attr("vrs", "standard_name", False, must_not_exist=True)
 
         allowed_range = None
-        if featuretype in ["timeSeries", "timeSeriesProfile"]:
+        if self.featuretype in ["timeSeries", "timeSeriesProfile"]:
             time_dims = ("station", "ntime")
             time_bounds_dims = ("station", "ntime", "nv")
             time_dim_name = "ntime"
-        elif featuretype == "trajectory":
+        elif self.featuretype == "trajectory":
             time_dims = ("trag", "ntime")
             time_bounds_dims = ("traj", "ntime", "nv")
             time_dim_name = "ntime"
-        elif featuretype == "None":
+        elif self.featuretype == "None":
             time_dims = ("time")
             time_bounds_dims = ("time", "nv")
             time_dim_name = "time"
@@ -213,7 +214,7 @@ class UC2Data(xarray.Dataset):
                                             allowed_range=allowed_range, dims=time_dims,
                                             must_be_sorted_along=time_dim_name,
                                             decrease_sort_allowed=False,
-                                            fill_allowed=featuretype != "None")  # TODO: If coordinate var, then no missing values allowed.
+                                            fill_allowed=self.featuretype != "None")  # TODO: If coordinate var, then no missing values allowed.
         if result["time"]["variable"]:
             result["time"]["long_name"] = self.check_var_attr("time", "long_name", True, allowed_types=str, allowed_values="time")
             result["time"]["standard_name"] = self.check_var_attr("time", "standard_name", True, allowed_types=str,
@@ -222,7 +223,7 @@ class UC2Data(xarray.Dataset):
                                                           allowed_values="proleptic_gregorian")
             result["time"]["axis"] = self.check_var_attr("time", "axis", True, allowed_types=str, allowed_values="T")
             result["time"]["fill_values"] = self.check_var_attr("time", "_FillValue", False, allowed_types=self.variables["time"].dtype,
-                                                             must_not_exist=featuretype == "None")
+                                                             must_not_exist=self.featuretype == "None")
             result["time"]["units"] = self.check_var_attr("time", "units", True, allowed_types=str,
                                                        regex="seconds since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00")
             if result["origin_time"] and result["time"]["units"]:
@@ -245,19 +246,19 @@ class UC2Data(xarray.Dataset):
         else:
             result["time"]["bounds"] = self.check_var_attr("time", "bounds", False, must_not_exist=True)
 
-        if featuretype == "None":
+        if self.featuretype == "None":
             z_dims = ("z")
             z_bounds_dims = ("z", "nv")
             must_be_sorted_along = "z"
-        elif featuretype == "timeSeries":
+        elif self.featuretype == "timeSeries":
             z_dims = ("station")
             z_bounds_dims = ("station", "nv")
             must_be_sorted_along = None
-        elif featuretype == "timeSeriesProfile":
+        elif self.featuretype == "timeSeriesProfile":
             z_dims = ("station", "ntime", "nz")
             z_bounds_dims = ("station", "ntime", "nz", "nv")
             must_be_sorted_along = "nz"
-        elif featuretype == "trajectory":
+        elif self.featuretype == "trajectory":
             z_dims = ("traj", "ntime")
             z_bounds_dims = ("traj", "ntime", "nv")
             must_be_sorted_along = None
@@ -268,7 +269,7 @@ class UC2Data(xarray.Dataset):
         result["z"]["variable"] = self.check_var("z", True, allowed_types=[numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.float,
                                                         numpy.float16, numpy.float32, numpy.float64], dims=z_dims,
                                             must_be_sorted_along=must_be_sorted_along,
-                                            fill_allowed=featuretype != "None")
+                                            fill_allowed=self.featuretype != "None")
         result["z"]["long_name"] = self.check_var_attr("z", "long_name", True, allowed_types=str, allowed_values="height above origin")
         result["z"]["axis"] = self.check_var_attr("z", "axis", True, allowed_types=str, allowed_values="Z")
         result["z"]["positive"] = self.check_var_attr("z", "positive", True, allowed_types=str, allowed_values="up")
@@ -295,10 +296,16 @@ class UC2Data(xarray.Dataset):
         else:
             result["z"]["bounds"] = self.check_var_attr("z", "bounds", False, must_not_exist=True)
 
-        if featuretype in ["timeSeries", "timeSeriesProfile"]:
+        if self.featuretype in ["timeSeries", "timeSeriesProfile"]:
             result["station_h"] = self.check_var("station_h", True,
                                                  allowed_types=[numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.float,
                                                   numpy.float16, numpy.float32, numpy.float64], dims=("station"))
+
+        # x, y
+        result["x"] = self.check_xy("x")
+        result["y"] = self.check_xy("y")
+        result["lon"] = self.check_xy("lon")
+        result["lat"] = self.check_xy("lat")
 
         ###
         # Data variables
@@ -316,6 +323,61 @@ class UC2Data(xarray.Dataset):
 
 
         return result
+
+    def check_xy(self, xy):
+        if not xy in ["x", "y", "lon", "lat"]:
+            raise Exception('Unexpected variable: ' + xy)
+
+        if self.featuretype == "None":
+            if xy in ["x", "y"]:
+                dims = xy
+                sort_along = xy
+            elif xy in ["lon", "lat"]:
+                dims = ("y", "x")
+                sort_along = None
+            fill_allowed = False
+        elif self.featuretype in ["timeSeries", "timeSeriesProfile"]:
+            dims = "station"
+            sort_along = None
+            fill_allowed = True
+        elif self.featuretype == "trajectory":
+            dims = ("traj", "ntime")
+            sort_along = None
+            fill_allowed = True
+        else:
+            raise Exception("Unexpected featureType")
+            # TODO: In case of "pixel-based surfaces" x has dimenstions (time, nrow, ncol)
+
+        out = dict()
+        out["variable"] = self.check_var(xy, True,
+                                         allowed_types=[numpy.float, numpy.float16, numpy.float32, numpy.float64,
+                                                        numpy.int, numpy.int8, numpy.int16, numpy.int32],
+                                         dims=dims, must_be_sorted_along=sort_along, decrease_sort_allowed=True,
+                                         fill_allowed=fill_allowed)
+        if out["variable"]:
+
+            if xy in ["x", "y"]:
+                long_n = "distance to origin in "+xy+"-direction"
+                axis = xy.upper()
+                units = "m"
+            elif xy == "lon":
+                long_n = "longitude"
+                axis = None
+                units = "degrees_east"
+            elif xy == "lat":
+                long_n = "latitude"
+                axis = None
+                units = "degrees_north"
+
+            out["standard_name"] = self.check_var_attr(xy, "standard_name", xy in ["lon", "lat"],
+                                                       must_not_exist=not xy in ["lon", "lat"], allowed_values=long_n)
+            out["long_name"] = self.check_var_attr(xy, "long_name", True, allowed_types=str,
+                                                   allowed_values=long_n)
+            out["units"] = self.check_var_attr(xy, "units", True, allowed_types=str,
+                                               allowed_values=units)
+            out["axis"] = self.check_var_attr(xy, "axis", axis is not None, allowed_types=str, allowed_values=axis)
+
+        return out
 
     def check_var(self, varname, must_exist, allowed_types=None, allowed_range=None, dims=None,
                   must_be_sorted_along=None, decrease_sort_allowed=True, fill_allowed=True):
@@ -374,8 +436,7 @@ class UC2Data(xarray.Dataset):
                 return CheckResult(ResultCode.ERROR,
                                    "Variable '" + varname + "': Required variable attribute '" + attrname + "' not found.")
             else:
-                if not must_not_exist:
-                    return result
+                return result
         else:
             if must_not_exist:
                 return CheckResult(ResultCode.ERROR,
