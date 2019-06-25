@@ -53,37 +53,48 @@ class UC2Data(xarray.Dataset):
         "[UC]2 3DO Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 KliMoPrax Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 UseUClim Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
-        "[UC]2 Restriced Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 Restricted Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 Research Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 Open Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
-        ]
+    ]
 
-    featuretype = None
 
     def __init__(self, path):
         self.path = path
+        self.featuretype = None
+        self.filename = None
+        self.check_result = None
         super().__init__()
         tmp = xarray.open_dataset(self.path, decode_cf=False)
         self.update(tmp, inplace=True)
         self.attrs = tmp.attrs
 
+        if "featureType" in self.attrs.keys():
+            self.featuretype = self.attrs["featureType"]
+        else:
+            self.featuretype = "None"
+
+        self.check_result = self.uc2_check()
+
+        self.filename = self.get_filename()
+
     def uc2_check(self):
 
-        allowed_data_contents = UC2Data.allowed_data_contents
-        allowed_licences = UC2Data.allowed_licences
-        allowed_institutions = UC2Data.allowed_institutions
-        allowed_acronyms = UC2Data.allowed_acronyms
-        allowed_locations = UC2Data.allowed_locations
-        allowed_sites = UC2Data.allowed_sites
+        is_ts = self.featuretype == "timeSeries"
+        is_tsp = self.featuretype == "timeSeriesProfile"
+        is_traj = self.featuretype == "trajectory"
+        is_grid = self.featuretype == "None"
 
         ###
         # Check global attributes
         ###
+
         result = dict()
 
         result["title"] = self.check_glob_attr("title", True, str)
         result["data_content"] = self.check_glob_attr("data_content", True, str,
-                                                      allowed_values=allowed_data_contents)  # TODO: Redo this test when variable is checked
+                                                      allowed_values=UC2Data.allowed_data_contents,
+                                                      max_strlen=16)  # TODO: Redo this test when variable is checked
         result["source"] = self.check_glob_attr("source", True, str)
         result["version"] = self.check_glob_attr("version", True,
                                                  [int, numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.int64],
@@ -96,7 +107,7 @@ class UC2Data(xarray.Dataset):
         result["references"] = self.check_glob_attr("references", True, str)
         result["comment"] = self.check_glob_attr("comment", True, str)
         result["keywords"] = self.check_glob_attr("keywords", True, str)
-        result["licence"] = self.check_glob_attr("licence", True, str, allowed_values=allowed_licences)
+        result["licence"] = self.check_glob_attr("licence", True, str, allowed_values=UC2Data.allowed_licences)
         result["creation_time"] = self.check_glob_attr("creation_time", True, str,
                                                        regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00")
         result["origin_time"] = self.check_glob_attr("origin_time", True, str,
@@ -113,31 +124,30 @@ class UC2Data(xarray.Dataset):
 
         # non-standard checks
 
-        if "featureType" in self.attrs.keys():
+        if not is_grid:
             result["featureType"] = self.check_glob_attr("featureType", False, str,
                                                          allowed_values=["timeSeries", "timeSeriesProfile",
                                                                          "trajectory"])
             if not result["featureType"]:
                 return result
-            self.featuretype = self.attrs["featureType"]
-        else:
-            self.featuretype = "None"
 
         result["origin_z"] = self.check_glob_attr("origin_z", True, [numpy.float, numpy.float32, numpy.float64],
-                                                      allowed_values=0 if (self.featuretype != "None") else None)
-        result["location"] = self.check_glob_attr("location", True, str, allowed_values=allowed_locations)
-        result["site"] = self.check_glob_attr("site", True, str, allowed_values=allowed_sites)
+                                                  allowed_values=0 if (not is_grid) else None)
+        result["location"] = self.check_glob_attr("location", True, str, allowed_values=UC2Data.allowed_locations)
+        result["site"] = self.check_glob_attr("site", True, str, allowed_values=UC2Data.allowed_sites,
+                                              max_strlen=12)
         if result["location"] and result["site"]:
-            if allowed_locations[allowed_sites.index(self.attrs["site"])] != self.attrs["location"]:
+            if UC2Data.allowed_locations[UC2Data.allowed_sites.index(self.attrs["site"])] != self.attrs["location"]:
                 result["site"].append(CheckResult(ResultCode.ERROR, "site '" + self.attrs[
                     "site"] + "' does not match location '" + self.attrs["location"] + "'"))
                 result["location"].append(CheckResult(ResultCode.ERROR, "site '" + self.attrs[
                     "site"] + "' does not match location '" + self.attrs["location"] + "'"))
 
-        result["institution"] = self.check_glob_attr("institution", True, str, allowed_values=allowed_institutions)
-        result["acronym"] = self.check_glob_attr("acronym", True, str, allowed_values=allowed_acronyms)
+        result["institution"] = self.check_glob_attr("institution", True, str, allowed_values=UC2Data.allowed_institutions)
+        result["acronym"] = self.check_glob_attr("acronym", True, str, allowed_values=UC2Data.allowed_acronyms,
+                                                 max_strlen=12)
         if result["institution"] and result["acronym"]:
-            if allowed_institutions.index(self.attrs["institution"]) != allowed_acronyms.index(self.attrs["acronym"]):
+            if UC2Data.allowed_institutions.index(self.attrs["institution"]) != UC2Data.allowed_acronyms.index(self.attrs["acronym"]):
                 result["institution"].append(CheckResult(ResultCode.ERROR, "institution '" + self.attrs[
                     "institution"] + "' does not match acronym '" + self.attrs["acronym"] + "'"))
                 result["acronym"].append(CheckResult(ResultCode.ERROR, "institution '" + self.attrs[
@@ -154,18 +164,19 @@ class UC2Data(xarray.Dataset):
 
         is_iop = False
         is_lto = False
-        result["campaign"] = self.check_glob_attr("campaign", True, str, regex="^[A-Za-z0-9\._-]+$")
+        result["campaign"] = self.check_glob_attr("campaign", True, str, regex="^[A-Za-z0-9\._-]+$",
+                                                  max_strlen=12)
         if result["campaign"]:
             if self.attrs["campaign"][0:3] == "IOP":
                 is_iop = True
                 if (len(self.attrs["campaign"]) != 5) or (not int(self.attrs["campaign"][3:]) in range(1, 100)):
                     result["campaign"].append(CheckResult(ResultCode.ERROR,
-                                                     "Global attribute 'campaign': If IOP then string must be IOPxx"))
+                                                          "Global attribute 'campaign': If IOP then string must be IOPxx"))
             elif self.attrs["campaign"][0:4] in ["VALR", "VALM"]:
                 is_lto = True
                 if (len(self.attrs["campaign"]) != 6) or (not int(self.attrs["campaign"][4:]) in range(1, 100)):
                     result["campaign"].append(CheckResult(ResultCode.ERROR,
-                                                     "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx"))
+                                                          "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx"))
 
         ###
         # Check dims
@@ -175,32 +186,39 @@ class UC2Data(xarray.Dataset):
         if "nv" in self.dims.keys():
             if self.dims["nv"] != 2:
                 result["nv_is_2"] = CheckResult(ResultCode.ERROR, "Dimension 'nv' must have size of 2.")
+        if "max_name_len" in self.dims.keys():
+            if self.dims["max_name_len"] != 32:
+                result["max_name_len_is_32"] = CheckResult(ResultCode.ERROR, "Dimension 'max_name_len' must have size of 32.")
 
         ###
         # Check variables
         ###
+
+        # vrs
+
         result["vrs"] = dict()
         result["vrs"]["variable"] = self.check_var("vrs", True, dims=())
         if result["vrs"]["variable"]:
             result["vrs"]["long_name"] = self.check_var_attr("vrs", "long_name", True, allowed_types=str,
-                                                          allowed_values="vertical reference system")
+                                                             allowed_values="vertical reference system")
             result["vrs"]["system_name"] = self.check_var_attr("vrs", "system_name", True, allowed_types=str, allowed_values="DHHN2016")
             result["vrs"]["standard_name"] = self.check_var_attr("vrs", "standard_name", False, must_not_exist=True)
 
+        # time
+
         allowed_range = None
-        if self.featuretype in ["timeSeries", "timeSeriesProfile"]:
+        if is_ts or is_tsp:
             time_dims = ("station", "ntime")
             time_bounds_dims = ("station", "ntime", "nv")
             time_dim_name = "ntime"
-        elif self.featuretype == "trajectory":
+        elif is_traj:
             time_dims = ("trag", "ntime")
             time_bounds_dims = ("traj", "ntime", "nv")
             time_dim_name = "ntime"
-        elif self.featuretype == "None":
+        else:
             time_dims = ("time")
             time_bounds_dims = ("time", "nv")
             time_dim_name = "time"
-        else: raise Exception("Unexpected featureType")
 
         if is_iop:
             allowed_range = [.01, 86400]
@@ -211,31 +229,31 @@ class UC2Data(xarray.Dataset):
 
         result["time"] = dict()
         result["time"]["variable"] = self.check_var("time", True, allowed_types=[numpy.int16, numpy.int32, numpy.float],
-                                            allowed_range=allowed_range, dims=time_dims,
-                                            must_be_sorted_along=time_dim_name,
-                                            decrease_sort_allowed=False,
-                                            fill_allowed=self.featuretype != "None")  # TODO: If coordinate var, then no missing values allowed.
+                                                    allowed_range=allowed_range, dims=time_dims,
+                                                    must_be_sorted_along=time_dim_name,
+                                                    decrease_sort_allowed=False,
+                                                    fill_allowed=not is_grid)  # TODO: If coordinate var, then no missing values allowed.
         if result["time"]["variable"]:
             result["time"]["long_name"] = self.check_var_attr("time", "long_name", True, allowed_types=str, allowed_values="time")
             result["time"]["standard_name"] = self.check_var_attr("time", "standard_name", True, allowed_types=str,
-                                                               allowed_values="time")
+                                                                  allowed_values="time")
             result["time"]["calendar"] = self.check_var_attr("time", "calendar", True, allowed_types=str,
-                                                          allowed_values="proleptic_gregorian")
+                                                             allowed_values="proleptic_gregorian")
             result["time"]["axis"] = self.check_var_attr("time", "axis", True, allowed_types=str, allowed_values="T")
             result["time"]["fill_values"] = self.check_var_attr("time", "_FillValue", False, allowed_types=self.variables["time"].dtype,
-                                                             must_not_exist=self.featuretype == "None")
+                                                                must_not_exist=is_grid)
             result["time"]["units"] = self.check_var_attr("time", "units", True, allowed_types=str,
-                                                       regex="seconds since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00")
+                                                          regex="seconds since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00")
             if result["origin_time"] and result["time"]["units"]:
                 if self.attrs["origin_time"] != self.variables["time"].attrs["units"][14:]:
                     result["time"]["origin_time"] = CheckResult(ResultCode.ERROR,
-                                                        "Global attribute 'origin_time' does not match units of variable 'time'.")
+                                                                "Global attribute 'origin_time' does not match units of variable 'time'.")
         result["time_bounds"] = dict()
         if "time_bounds" in self.variables.keys():
             result["time"]["bounds"] = self.check_var_attr("time", "bounds", True, allowed_types=str, allowed_values="time_bounds")
             if result["time"]["variable"]:
                 result["time_bounds"]["variable"] = self.check_var("time_bounds", True, allowed_types=self.variables["time"].dtype,
-                                                           dims=time_bounds_dims)
+                                                                   dims=time_bounds_dims)
                 if not self.variables["time"][0].equals(self.variables["time_bounds"][0,:,1]):
                     result["time_bounds"]["variable"].append(CheckResult(ResultCode.ERROR, "second column of 'time_bounds' must equal data of variable 'time'"))
 
@@ -246,19 +264,21 @@ class UC2Data(xarray.Dataset):
         else:
             result["time"]["bounds"] = self.check_var_attr("time", "bounds", False, must_not_exist=True)
 
-        if self.featuretype == "None":
+        # z
+
+        if is_grid:
             z_dims = ("z")
             z_bounds_dims = ("z", "nv")
             must_be_sorted_along = "z"
-        elif self.featuretype == "timeSeries":
+        elif is_ts:
             z_dims = ("station")
             z_bounds_dims = ("station", "nv")
             must_be_sorted_along = None
-        elif self.featuretype == "timeSeriesProfile":
+        elif is_tsp:
             z_dims = ("station", "ntime", "nz")
             z_bounds_dims = ("station", "ntime", "nz", "nv")
             must_be_sorted_along = "nz"
-        elif self.featuretype == "trajectory":
+        elif is_traj:
             z_dims = ("traj", "ntime")
             z_bounds_dims = ("traj", "ntime", "nv")
             must_be_sorted_along = None
@@ -267,16 +287,16 @@ class UC2Data(xarray.Dataset):
         result["z"] = dict()
 
         result["z"]["variable"] = self.check_var("z", True, allowed_types=[numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.float,
-                                                        numpy.float16, numpy.float32, numpy.float64], dims=z_dims,
-                                            must_be_sorted_along=must_be_sorted_along,
-                                            fill_allowed=self.featuretype != "None")
+                                                                           numpy.float16, numpy.float32, numpy.float64], dims=z_dims,
+                                                 must_be_sorted_along=must_be_sorted_along,
+                                                 fill_allowed=not is_grid)
         result["z"]["long_name"] = self.check_var_attr("z", "long_name", True, allowed_types=str, allowed_values="height above origin")
         result["z"]["axis"] = self.check_var_attr("z", "axis", True, allowed_types=str, allowed_values="Z")
         result["z"]["positive"] = self.check_var_attr("z", "positive", True, allowed_types=str, allowed_values="up")
         if result["origin_z"]:
             result["z"]["standard_name"] = self.check_var_attr("z", "standard_name", self.attrs["origin_z"] == 0, allowed_types=str,
-                                                        allowed_values="height_above_mean_sea_level",
-                                                        must_not_exist=self.attrs["origin_z"] != 0)
+                                                               allowed_values="height_above_mean_sea_level",
+                                                               must_not_exist=self.attrs["origin_z"] != 0)
         result["z_bounds"] = dict()
         if "z_bounds" in self.variables.keys():
             result["z"]["bounds"] = self.check_var_attr("z", "bounds", True, allowed_types=str, allowed_values="z_bounds")
@@ -296,26 +316,133 @@ class UC2Data(xarray.Dataset):
         else:
             result["z"]["bounds"] = self.check_var_attr("z", "bounds", False, must_not_exist=True)
 
-        if self.featuretype in ["timeSeries", "timeSeriesProfile"]:
+        if is_ts or is_tsp:
             result["station_h"] = self.check_var("station_h", True,
                                                  allowed_types=[numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.float,
-                                                  numpy.float16, numpy.float32, numpy.float64], dims=("station"))
+                                                                numpy.float16, numpy.float32, numpy.float64], dims=("station"))
 
         # x, y
         result["x"] = self.check_xy("x")
         result["y"] = self.check_xy("y")
         result["lon"] = self.check_xy("lon")
         result["lat"] = self.check_xy("lat")
+        result["E_UTM"] = self.check_xy("E_UTM")
+        result["N_UTM"] = self.check_xy("N_UTM")
+        # TODO: check xu, yv, zw, Eu_UTM, Nu_UTM, Ev_UTM, Nv_UTM, lonu, latu, lonv, latv
+
+        # crs
+        result["crs"] = dict()
+        result["crs"]["variable"] = self.check_var("crs", True)
+        result["crs"]["standard_name"] = self.check_var_attr("crs", "standard_name", False, must_not_exist=True)
+        result["crs"]["long_name"] = self.check_var_attr("crs", "long_name", True,
+                                                         allowed_values="coordinate reference system")
+        result["crs"]["grid_mapping_name"] = self.check_var_attr("crs", "grid_mapping_name", True,
+                                                                 allowed_values="transverse_mercator")
+        result["crs"]["semi_major_axis"] = self.check_var_attr("crs", "semi_major_axis", True,
+                                                               allowed_values=6378137)
+        result["crs"]["inverse_flattening"] = self.check_var_attr("crs", "inverse_flattening", True,
+                                                                  allowed_range=[298.2572,298.2573])
+        result["crs"]["longitude_of_prime_meridian"] = self.check_var_attr("crs", "longitude_of_prime_meridian",
+                                                                           True, allowed_values=0)
+        result["crs"]["longitude_of_central_meridian"] = self.check_var_attr("crs", "longitude_of_central_meridian",
+                                                                             True, allowed_values=[3,9,15])
+        result["crs"]["scale_factor_at_central_meridian"] = self.check_var_attr("crs", "scale_factor_at_central_meridian",
+                                                                                True, allowed_range=[0.9995,0.9997])
+        result["crs"]["latitude_of_projection_origin"] = self.check_var_attr("crs", "latitude_of_projection_origin",
+                                                                             True, allowed_values=0)
+        result["crs"]["false_easting"] = self.check_var_attr("crs", "false_easting", True, allowed_values=500000)
+        result["crs"]["false_northing"] = self.check_var_attr("crs", "false_northing", True, allowed_values=0)
+        result["crs"]["units"] = self.check_var_attr("crs", "units", True, allowed_values="m")
+        result["crs"]["epsg_code"] = self.check_var_attr("crs", "epsg_code", True,
+                                                         allowed_values=["EPSG:25831","EPSG:25832","EPSG:25833"])
+
+        #
+        # other (auxiliary) coordinate variables
+        #
+
+        check_platform = False
+        if is_ts or is_tsp:
+            check_platform = True
+            name = "station_name"
+            long_name = "station name"
+            dim = "station"
+            id = "timeseries_id"
+        elif is_traj:
+            check_platform = True
+            name = "traj_name"
+            long_name = "trajectory name"
+            dim = "traj"
+            id = "trajectory_id"
+
+        if check_platform:
+            result[name] = dict()
+            result[name]["variable"] = self.check_var(name, True, allowed_types=numpy.dtype("S1"),
+                                                                dims=(dim, "max_name_len"))
+            if result[name]["variable"]:
+                result[name]["long_name"] = self.check_var_attr(name, "long_name", True, allowed_types=str,
+                                                                allowed_values=long_name)
+                result[name]["standard_name"] = self.check_var_attr(name, "standard_name", True, allowed_types=str,
+                                                                    allowed_values="platform_name")
+                result[name]["cf_role"] = self.check_var_attr(name, "cf_role", True, allowed_types=str,
+                                                              allowed_values=id)
+
+        if is_ts or is_tsp:
+            result["station_h"] = dict()
+            result["station_h"]["variable"] = self.check_var("station_h", True,
+                                                             allowed_types=[numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.float,
+                                                             numpy.float16, numpy.float32, numpy.float64], dims="station",
+                                                             fill_allowed=False)
+            if result["station_h"]["variable"]:
+                result["station_h"]["long_name"] = self.check_var_attr("station_h", "long_name", True, allowed_types=str,
+                                                                       allowed_values="surface altitude")
+                result["station_h"]["standard_name"] = self.check_var_attr("station_h", "standard_name", True, allowed_types=str,
+                                                                       allowed_values="surface_altitude")
+                result["station_h"]["units"] = self.check_var_attr("station_h", "units", True,
+                                                                   allowed_types=str,
+                                                                   allowed_values="m")
+        if is_traj:
+            result["height"] = dict()
+            result["height"]["variable"] = self.check_var("height", True, allowed_types=[numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.float,
+                                                             numpy.float16, numpy.float32, numpy.float64])
+            if result["height"]["variable"]:
+                if self.variables["height"].dims != () or self.variables["height"].dims != ("traj", "ntime"):
+                    result["height"]["variable"] = CheckResult(ResultCode.ERROR, "Variable 'height' must either be scalar "+
+                                                               "or have dimensions (traj, ntime).")
+            if result["height"]["variable"]:
+                result["height"]["long_name"] = self.check_var_attr("height", "long_name", True,
+                                                                  allowed_types=str, allowed_values="height above surface")
+                result["height"]["standard_name"] = self.check_var_attr("height", "standard_name", True,
+                                                                      allowed_types=str, allowed_values="height")
+                result["height"]["units"] = self.check_var_attr("height", "units", True, allowed_types=str,
+                                                                allowed_values="m")
 
         ###
         # Data variables
         ###
+        dv = dict()
+        for ikey in self.data_vars:
+            if not ikey in ["station_name", "station_h", "z", "z_bounds",
+                            "crs", "vrs", "x", "xu", "xs", "y", "yv", "ys", "z", "zw", "zs",
+                            "lon", "lonu", "lonv", "lons", "lat", "latu", "latv", "lats",
+                            "E_UTM", "Eu_UTM", "Ev_UTM", "Es_UTM", "N_UTM", "Nu_UTM", "Nv_UTM", "Ns_UTM",
+                            "s",
+                            "time", "time_bounds",
+                            "azimuth", "azimuths", "zenith", "zeniths"]:
+                dv[ikey] = self.data_vars[ikey]
+
+        for ikey in dv:
+            # TODO: Check if variable is allowed
+            # TODO: Check for extension by agg_method
+            # TODO: Check agg_method with cell_methods
+            # TODO: Check flags, ancillaries and spectra
+            pass
 
         # TODO: "all coordinate and auxiliary coordinate variables must be specified in the attribute coordinates of the respective data variable"
         # TODO: If only one variable, data_content MUST be variable name.
         # TODO: If all variables have cell_methods with time:point then no time_bounds (and bounds attribute)
         # TODO: If all variables have cell_methods with z:point then no z_bounds (and bounds attribute)
         # TODO: Need height variable for "trajectory"
+        # TODO: Check azimuth, zenith
 
         ###
         # TODO: Check geo between var and glob att
@@ -325,7 +452,7 @@ class UC2Data(xarray.Dataset):
         return result
 
     def check_xy(self, xy):
-        if not xy in ["x", "y", "lon", "lat"]:
+        if not xy in ["x", "y", "lon", "lat", "E_UTM", "N_UTM"]:
             raise Exception('Unexpected variable: ' + xy)
 
         if self.featuretype == "None":
@@ -335,6 +462,9 @@ class UC2Data(xarray.Dataset):
             elif xy in ["lon", "lat"]:
                 dims = ("y", "x")
                 sort_along = None
+            elif xy in ["E_UTM", "N_UTM"]:
+                dims = "x" if xy == "E_UTM" else "y"
+                sort_along = dims
             fill_allowed = False
         elif self.featuretype in ["timeSeries", "timeSeriesProfile"]:
             dims = "station"
@@ -346,7 +476,7 @@ class UC2Data(xarray.Dataset):
             fill_allowed = True
         else:
             raise Exception("Unexpected featureType")
-            # TODO: In case of "pixel-based surfaces" x has dimenstions (time, nrow, ncol)
+            # TODO: In case of "pixel-based surfaces" x has dimensions (time, nrow, ncol)
 
         out = dict()
         out["variable"] = self.check_var(xy, True,
@@ -358,19 +488,22 @@ class UC2Data(xarray.Dataset):
 
             if xy in ["x", "y"]:
                 long_n = "distance to origin in "+xy+"-direction"
+                standard_n = None
                 axis = xy.upper()
                 units = "m"
-            elif xy == "lon":
-                long_n = "longitude"
+            elif xy in ["lon", "lat"]:
+                long_n = "longitude" if xy == "lon" else "latitude"
+                standard_n = long_n
                 axis = None
-                units = "degrees_east"
-            elif xy == "lat":
-                long_n = "latitude"
+                units = "degrees_east" if xy == "lon" else "degrees_north"
+            elif xy in ["E_UTM", "N_UTM"]:
+                long_n = "easting" if xy == "E_UTM" else "northing"
+                standard_n = "projection_x_coordinate" if xy == "E_UTM" else "projection_y_coordinate"
                 axis = None
-                units = "degrees_north"
+                units = "m"
 
-            out["standard_name"] = self.check_var_attr(xy, "standard_name", xy in ["lon", "lat"],
-                                                       must_not_exist=not xy in ["lon", "lat"], allowed_values=long_n)
+            out["standard_name"] = self.check_var_attr(xy, "standard_name", not xy in ["x", "y"],
+                                                       must_not_exist=xy in ["x", "y"], allowed_values=standard_n)
             out["long_name"] = self.check_var_attr(xy, "long_name", True, allowed_types=str,
                                                    allowed_values=long_n)
             out["units"] = self.check_var_attr(xy, "units", True, allowed_types=str,
@@ -395,12 +528,12 @@ class UC2Data(xarray.Dataset):
                 allowed_types = [allowed_types]
             if not self.variables[varname].dtype in allowed_types:
                 result.append(CheckResult(ResultCode.ERROR, "Variable '" + varname + "' has wrong type. Should be " +
-                                   "one of the following: " + str(allowed_types)))
+                                          "one of the following: " + str(allowed_types)))
 
         if allowed_range:
             if (self.variables[varname].min() < allowed_range[0]) or (self.variables[varname].max() > allowed_range[1]):
                 result.append(CheckResult(ResultCode.ERROR,
-                                   "Variable '" + varname + "' is outside allowed range" + str(allowed_range)))
+                                          "Variable '" + varname + "' is outside allowed range" + str(allowed_range)))
 
         if dims:
             if type(dims) == list:
@@ -428,7 +561,7 @@ class UC2Data(xarray.Dataset):
 
 
     def check_var_attr(self, varname, attrname, must_exist, allowed_types=None, allowed_values=None, regex=None,
-                       must_not_exist=None):
+                       must_not_exist=None, allowed_range=None):
         exists = attrname in self.variables[varname].attrs.keys()
         result = CheckResult(ResultCode.OK, "Test passed.")
         if not exists:
@@ -447,26 +580,36 @@ class UC2Data(xarray.Dataset):
                 allowed_types = [allowed_types]
             if not type(self.variables[varname].attrs[attrname]) in allowed_types:
                 result.append(CheckResult(ResultCode.ERROR,
-                                   "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong type. Should be " +
-                                   "one of the following: " + str(allowed_types)))
+                                          "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong type. Should be " +
+                                          "one of the following: " + str(allowed_types)))
 
         if allowed_values:
+            if type(allowed_values) != list:
+                allowed_values = [allowed_values]
             if not self.variables[varname].attrs[attrname] in allowed_values:
                 if len(allowed_values) == 1:
                     result.append(CheckResult(ResultCode.ERROR,
-                                       "Variable '" + varname + "': Required variable attribute '" + attrname + "'  has wrong value. Should be " +
-                                       str(allowed_values[0])))
+                                              "Variable '" + varname + "': Required variable attribute '" + attrname + "'  has wrong value. Should be " +
+                                              str(allowed_values[0])))
                 else:
                     result.append(CheckResult(ResultCode.ERROR,
-                                       "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong value"))
+                                              "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong value"))
+
+        if allowed_range:
+            if self.variables[varname].attrs[attrname] < allowed_range[0] or \
+                    self.variables[varname].attrs[attrname] > allowed_range[1]:
+                result.append(CheckResult(ResultCode.ERROR,
+                                          "Variable '" + varname + "': Attribute '"+attrname+"' outside range. Expected: "+
+                                          str(allowed_range)))
 
         if regex:
             if re.fullmatch(regex, self.variables[varname].attrs[attrname]) is None:
                 result.append(CheckResult(ResultCode.ERROR,
-                                   "Global attribute '" + attrname + "' does not match regular expression " + regex))
+                                          "Global attribute '" + attrname + "' does not match regular expression " + regex))
         return result
 
-    def check_glob_attr(self, attrname, must_exist, allowed_types=None, allowed_values=None, regex=None, allowed_range=None):
+    def check_glob_attr(self, attrname, must_exist, allowed_types=None, allowed_values=None,
+                        max_strlen=None, regex=None, allowed_range=None):
         exists = attrname in self.attrs.keys()
         result = CheckResult(ResultCode.OK, "Test passed.")
         if not exists:
@@ -480,21 +623,27 @@ class UC2Data(xarray.Dataset):
                 allowed_types = [allowed_types]
             if not type(self.attrs[attrname]) in allowed_types:
                 result.append(CheckResult(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong type. Should be " +
-                                   "one of the following: " + str(allowed_types)))
+                                          "one of the following: " + str(allowed_types)))
 
         if allowed_values:
             if not self.attrs[attrname] in allowed_values:
                 if len(allowed_values) == 1:
                     result.append(CheckResult(ResultCode.ERROR,
-                                       "Global attribute '" + attrname + "' has wrong value. Should be " +
-                                       str(allowed_values[0])))
+                                              "Global attribute '" + attrname + "' has wrong value. Should be " +
+                                              str(allowed_values[0])))
                 else:
                     result.append(CheckResult(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong value"))
 
         if regex:
             if re.fullmatch(regex, self.attrs[attrname]) is None:
                 result.append(CheckResult(ResultCode.ERROR,
-                                   "Global attribute '" + attrname + "' does not match regular expression " + regex))
+                                          "Global attribute '" + attrname + "' does not match regular expression " + regex))
+
+        if max_strlen:
+            if len(self.attrs[attrname]) > max_strlen:
+                result.append(CheckResult(ResultCode.ERROR,
+                                          "Global attribute '" + attrname + "' is too long. Must be max. "+
+                                          str(max_strlen) + " characters."))
 
         if allowed_range:
             if (self.attrs[attrname] < allowed_range[0]) or (self.attrs[attrname] > allowed_range[1]):
@@ -502,6 +651,21 @@ class UC2Data(xarray.Dataset):
                                    "Global attribute '" + attrname + "' is outside allowed range " + str(allowed_range))
 
         return result
+
+    def get_filename(self):
+        attrs = ["campaign", "location", "site", "acronym", "data_content", "origin_time", "version"]
+        vals = list()
+        for i in attrs:
+            if not self.check_result[i]:
+                raise Exception("Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity test.")
+
+            if i == "origin_time":
+                vals.append(self.attrs[i][: 10].replace("-", ""))
+            elif i == "version":
+                vals.append(str(self.attrs[i]).zfill(3))
+            else:
+                vals.append(self.attrs[i].replace("-", "_"))
+        return "_".join(vals) + ".nc"
 
 
 def check_person_field(string, attrname):
