@@ -26,10 +26,12 @@ class UC2Data(xarray.Dataset):
         for row in spamreader:
             allowed_data_contents.append(row[1])
 
+    allowed_variables = list()
     with open(variables_file, encoding="utf-8") as csvfile:
         spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
         for row in spamreader:
-            allowed_data_contents.append(row[3])
+            allowed_variables.append(row[3])
+    allowed_data_contents.extend(allowed_variables)
 
     allowed_institutions = []
     allowed_acronyms = []
@@ -431,7 +433,11 @@ class UC2Data(xarray.Dataset):
                 dv[ikey] = self.data_vars[ikey]
 
         for ikey in dv:
-            # TODO: Check if variable is allowed
+            if ikey in self.allowed_variables:
+                result[ikey] = dict()
+                result[ikey]["variable"] = self.check_var()
+            else:
+                pass
             # TODO: Check for extension by agg_method
             # TODO: Check agg_method with cell_methods
             # TODO: Check flags, ancillaries and spectra
@@ -443,6 +449,7 @@ class UC2Data(xarray.Dataset):
         # TODO: If all variables have cell_methods with z:point then no z_bounds (and bounds attribute)
         # TODO: Need height variable for "trajectory"
         # TODO: Check azimuth, zenith
+        # TODO: Check ranges of allowed values and "almost_equal"
 
         ###
         # TODO: Check geo between var and glob att
