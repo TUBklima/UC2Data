@@ -1,0 +1,18 @@
+name|uc2_identifikator|cf_identifikator|einheit_pruefbar|bemerkung
+Absolutes Maximum|maxabs|maximum_absolute_value|1|
+Absolutes Minimum|minabs|minimum_absolute_value|1|
+Drittes Moment einer Verteilung|skew||0|
+Maximum|max|maximum|1|
+Meanabs|meanabs|mean_absolute_value|1|
+Meanupd|meanupd|mean_of_upper_decile|1|
+Median|med|median|1|
+Mid|mid|mid_range|1|
+Minimum|min|minimum|1|
+Mittel||mean|1|
+Mode|mode|mode|1|
+Punkt||point|1|
+Range|range|range|1|
+Standardabweichung|sigma|standard_deviation|1|
+Summe||sum|1|
+Sumsqr|sumsqr|sum_of_sqares|0|
+Varianz|var|variance|0|
