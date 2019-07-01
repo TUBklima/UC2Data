@@ -23,6 +23,10 @@ sites_file = "sites.txt"
 
 
 class UC2Data(xarray.Dataset):
+
+    all_floats = [float, numpy.float, numpy.float16, numpy.float32, numpy.float64]
+    all_ints = [int, numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.int64]
+
     allowed_aggregations = dict()
     with open(aggregations_file, encoding="utf-8") as csvfile:
         spamreader = csv.reader(csvfile, delimiter='|', quotechar='"')
@@ -110,7 +114,7 @@ class UC2Data(xarray.Dataset):
                                                         max_strlen=16))  # TODO: Redo this test when variable is checked
         result["source"].add(self.check_glob_attr("source", True, str))
         result["version"].add(self.check_glob_attr("version", True,
-                                                   [int, numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.int64],
+                                                   int,
                                                    allowed_values=list(
                                                        range(1, 1000))))  # TODO: This is going to be checked in DMS
         result["Conventions"].add(self.check_glob_attr("Conventions", True, str, allowed_values=["CF-1.7"]))
@@ -125,14 +129,14 @@ class UC2Data(xarray.Dataset):
                                                          regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
         result["origin_time"].add(self.check_glob_attr("origin_time", True, str,
                                                        regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))  # TODO: Check later with time units.
-        result["origin_lon"].add(self.check_glob_attr("origin_lon", True, [numpy.float, numpy.float32, numpy.float64],
+        result["origin_lon"].add(self.check_glob_attr("origin_lon", True, float,
                                                       allowed_range=[-180, 180]))
-        result["origin_lat"].add(self.check_glob_attr("origin_lat", True, [numpy.float, numpy.float32, numpy.float64],
+        result["origin_lat"].add(self.check_glob_attr("origin_lat", True, float,
                                                       allowed_range=[-90, 90]))
-        result["origin_x"].add(self.check_glob_attr("origin_x", True, [numpy.float, numpy.float32, numpy.float64]))
-        result["origin_y"].add(self.check_glob_attr("origin_y", True, [numpy.float, numpy.float32, numpy.float64]))
+        result["origin_x"].add(self.check_glob_attr("origin_x", True, float))
+        result["origin_y"].add(self.check_glob_attr("origin_y", True, float))
         result["rotation_angle"].add(self.check_glob_attr("rotation_angle", True,
-                                                          [numpy.float, numpy.float32, numpy.float64],
+                                                          float,
                                                           allowed_range=[0, 360]))
 
         # non-standard checks
@@ -144,7 +148,7 @@ class UC2Data(xarray.Dataset):
             if not result["featureType"]:
                 return result
 
-        result["origin_z"].add(self.check_glob_attr("origin_z", True, [numpy.float, numpy.float32, numpy.float64],
+        result["origin_z"].add(self.check_glob_attr("origin_z", True, float,
                                                     allowed_values=0 if (not is_grid) else None))
         result["location"].add(self.check_glob_attr("location", True, str, allowed_values=UC2Data.allowed_locations))
         result["site"].add(self.check_glob_attr("site", True, str, allowed_values=UC2Data.allowed_sites,
@@ -243,12 +247,13 @@ class UC2Data(xarray.Dataset):
                 allowed_range = [.01, ndays * 24 * 60 * 60]
 
         result["time"]["variable"].add(
-            self.check_var("time", True, allowed_types=[numpy.int16, numpy.int32, numpy.float],
+            self.check_var("time", True, allowed_types=[int, float],
                            allowed_range=allowed_range, dims=time_dims,
                            must_be_sorted_along=time_dim_name,
                            decrease_sort_allowed=False,
                            fill_allowed=not is_grid))  # TODO: If coordinate var, then no missing values allowed.
         if result["time"]["variable"]:
+            # bounds are checked below together with other variables.
             result["time"]["long_name"].add(
                 self.check_var_attr("time", "long_name", True, allowed_types=str, allowed_values="time"))
             result["time"]["standard_name"].add(self.check_var_attr("time", "standard_name", True, allowed_types=str,
@@ -265,90 +270,43 @@ class UC2Data(xarray.Dataset):
                 if self.attrs["origin_time"] != self["time"].units[14:]:
                     result["time"]["origin_time"].add(ResultCode.ERROR,
                                                       "Global attribute 'origin_time' does not match units of variable 'time'.")
-        if "time_bounds" in self.variables.keys():
-            result["time"]["bounds"].add(
-                self.check_var_attr("time", "bounds", True, allowed_types=str, allowed_values="time_bounds"))
-            if result["time"]["variable"]:
-                result["time_bounds"]["variable"].add(
-                    self.check_var("time_bounds", True, allowed_types=self["time"].dtype,
-                                   dims=time_bounds_dims))
-                if not self["time"][0].equals(self["time_bounds"][0, :, 1]):
-                    result["time_bounds"]["variable"].add(ResultCode.ERROR,
-                                                          "second column of 'time_bounds' must equal data of variable 'time'")
-
-                if len(self["time_bounds"].attrs) != 0:
-                    result["time_bounds"]["attributes"].add(ResultCode.ERROR,
-                                                            "Variable 'time_bounds' must not have any attributes.")
-            else:
-                result["time_bounds"]["variable"].add(ResultCode.ERROR,
-                                                      "Cannot check variable 'time_bounds' because of error in variable 'time'")
-        else:
-            result["time"]["bounds"].add(self.check_var_attr("time", "bounds", False, must_not_exist=True))
 
         # z
 
         if is_grid:
             z_dims = ("z")
-            z_bounds_dims = ("z", "nv")
             must_be_sorted_along = "z"
         elif is_ts:
             z_dims = ("station")
-            z_bounds_dims = ("station", "nv")
             must_be_sorted_along = None
         elif is_tsp:
             z_dims = ("station", "ntime", "nz")
-            z_bounds_dims = ("station", "ntime", "nz", "nv")
             must_be_sorted_along = "nz"
         elif is_traj:
             z_dims = ("traj", "ntime")
-            z_bounds_dims = ("traj", "ntime", "nv")
             must_be_sorted_along = None
         else:
             raise Exception("unexpected featureType.")
 
         result["z"]["variable"].add(
-            self.check_var("z", True, allowed_types=[numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.float,
-                                                     numpy.float16, numpy.float32, numpy.float64], dims=z_dims,
+            self.check_var("z", True, allowed_types=[int, float], dims=z_dims,
                            must_be_sorted_along=must_be_sorted_along,
                            fill_allowed=not is_grid))
         result["z"]["long_name"].add(
             self.check_var_attr("z", "long_name", True, allowed_types=str, allowed_values="height above origin"))
         result["z"]["axis"].add(self.check_var_attr("z", "axis", True, allowed_types=str, allowed_values="Z"))
         result["z"]["positive"].add(self.check_var_attr("z", "positive", True, allowed_types=str, allowed_values="up"))
+        # Bounds will be checked below with all other variables.
         if result["z"]:
             if result["origin_z"]:
                 result["z"]["standard_name"].add(
                     self.check_var_attr("z", "standard_name", self.attrs["origin_z"] == 0, allowed_types=str,
                                         allowed_values="height_above_mean_sea_level",
                                         must_not_exist=self.attrs["origin_z"] != 0))
-            if "z_bounds" in self.variables.keys():
-                result["z"]["bounds"].add(
-                    self.check_var_attr("z", "bounds", True, allowed_types=str, allowed_values="z_bounds"))
-                if result["z"]["variable"]:
-                    result["z_bounds"]["variable"].add(
-                        self.check_var("z_bounds", True, allowed_types=self["z"].dtype, dims=z_bounds_dims))
-
-                    z_bound_lower = self["z_bounds"][0, :, 0]
-                    z_bound_upper = self["z_bounds"][0, :, 1]
-                    z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
-                    if not numpy.allclose(self["z"][0].values, z_bound_mid.values, equal_nan=True):
-                        result["z_bounds"]["variable"].add(ResultCode.ERROR,
-                                                           "values of z must be in the middle between z_bounds.")
-
-                    if len(self["z_bounds"].attrs) != 0:
-                        result["z_bounds"]["attributes"].add(ResultCode.ERROR,
-                                                             "Variable 'z_bounds' must not have any attributes.")
-                else:
-                    result["z_bounds"]["variable"].add(ResultCode.ERROR,
-                                                       "Cannot check variable 'z_bounds' because of error in variable 'z'")
-            else:
-                result["z"]["bounds"].add(self.check_var_attr("z", "bounds", False, must_not_exist=True))
 
         if is_ts or is_tsp:
             result["station_h"].add(self.check_var("station_h", True,
-                                                   allowed_types=[numpy.int, numpy.int8, numpy.int16, numpy.int32,
-                                                                  numpy.float,
-                                                                  numpy.float16, numpy.float32, numpy.float64],
+                                                   allowed_types=[int, float],
                                                    dims=("station")))
 
         # x, y
@@ -440,10 +398,7 @@ class UC2Data(xarray.Dataset):
 
         if is_ts or is_tsp:
             result["station_h"]["variable"].add(self.check_var("station_h", True,
-                                                               allowed_types=[numpy.int, numpy.int8, numpy.int16,
-                                                                              numpy.int32, numpy.float,
-                                                                              numpy.float16, numpy.float32,
-                                                                              numpy.float64], dims="station",
+                                                               allowed_types=[int, float], dims="station",
                                                                fill_allowed=False))
             if result["station_h"]["variable"]:
                 result["station_h"]["long_name"].add(
@@ -457,10 +412,7 @@ class UC2Data(xarray.Dataset):
                                                                      allowed_values="m"))
         if is_traj:
             result["height"]["variable"].add(self.check_var("height", True,
-                                                            allowed_types=[numpy.int, numpy.int8, numpy.int16,
-                                                                           numpy.int32, numpy.float,
-                                                                           numpy.float16, numpy.float32,
-                                                                           numpy.float64]))
+                                                            allowed_types=[int, float]))
             if result["height"]["variable"]:
                 if self["height"].dims != () or self["height"].dims != ("traj", "ntime"):
                     result["height"]["variable"].add(ResultCode.ERROR, "Variable 'height' must either be scalar " +
@@ -567,7 +519,7 @@ class UC2Data(xarray.Dataset):
                     result[ikey]["long_name"].add(self.check_var_attr(ikey, "long_name", True, allowed_types=str,
                                                                       allowed_values=self.allowed_variables[ikey]["long_name"]))
                     result[ikey]["units"].add(self.check_var_attr(ikey, "units", True, allowed_types=str)) # TODO: check conversion
-                    result[ikey]["_FillValue"].add(self.check_var_attr(ikey, "_FillValue", True, allowed_types=None, # TODO: Check type of fill value. Careful: DataArray is numpy.dtype, var_attr is python type....
+                    result[ikey]["_FillValue"].add(self.check_var_attr(ikey, "_FillValue", True, allowed_types=self[ikey].dtype,
                                                                        allowed_values=-9999))
                     result[ikey]["coordinates"].add(self.check_var_attr(ikey, "coordinates", True, allowed_types=str)) # TODO: Check consistency
                     result[ikey]["grid_mapping"].add(self.check_var_attr(ikey, "grid_mapping", True, allowed_types=str,
@@ -580,8 +532,7 @@ class UC2Data(xarray.Dataset):
                                                                           must_not_exist=self.allowed_variables[ikey]["standard_name"] == ""))
                     result[ikey]["units_alt"].add(self.check_var_attr(ikey, "units_alt", False, allowed_types=str)) # TODO: check conversion
                     result[ikey]["uncertainty_rel"].add(self.check_var_attr(ikey, "uncertainty_rel", False,
-                                                                            allowed_types=[numpy.float, numpy.float16,
-                                                                                           numpy.float32, numpy.float64]))
+                                                                            allowed_types=float))
                     result[ikey]["processing_level"].add(self.check_var_attr(ikey, "processing_level", False,
                                                                              allowed_types=int, allowed_range=[0,3]))
                     result[ikey]["processing_info"].add(self.check_var_attr(ikey, "processing_info", False,
@@ -589,7 +540,7 @@ class UC2Data(xarray.Dataset):
                     result[ikey]["instrument_name"].add(self.check_var_attr(ikey, "instrument_name", False,
                                                                             allowed_types=str))
                     result[ikey]["instrument_nr"].add(self.check_var_attr(ikey, "instrument_nr", False,
-                                                                            allowed_types=str))
+                                                                          allowed_types=str))
                     result[ikey]["instrument_sn"].add(self.check_var_attr(ikey, "instrument_sn", False,
                                                                           allowed_types=str))
 
@@ -614,16 +565,16 @@ class UC2Data(xarray.Dataset):
                                                                        allowed_types=str,
                                                                        allowed_values=ikey + "_bounds"))
 
-                    pass
+
 
         if len(data_content_var_names) == 0:
             result.add(ResultCode.ERROR, "No data variable found.")
         elif len(data_content_var_names) == 1:
             if result["data_content"]:
-                if self.attrs["data_content"] != data_content_var_names:
+                if self.attrs["data_content"] != data_content_var_names[0]:
                     result["data_content"].add(ResultCode.ERROR, "Only one data variable found. '"+
                                                data_content_var_names[0] + "'. Expected global attribute 'data_content'" +
-                                               " to be '"+data_content_var_names+"'.")
+                                               " to be '"+data_content_var_names[0]+"'.")
 
 
 
@@ -696,8 +647,7 @@ class UC2Data(xarray.Dataset):
 
         out = CheckResult(ResultCode.OK)
         out["variable"].add(self.check_var(xy, True,
-                                           allowed_types=[numpy.float, numpy.float16, numpy.float32, numpy.float64,
-                                                          numpy.int, numpy.int8, numpy.int16, numpy.int32],
+                                           allowed_types=[int, float],
                                            dims=dims, must_be_sorted_along=sort_along, decrease_sort_allowed=True,
                                            fill_allowed=fill_allowed))
         if out["variable"]:
@@ -741,8 +691,21 @@ class UC2Data(xarray.Dataset):
                 return result
 
         if allowed_types:
-            if type(allowed_types) == numpy.dtype:
+            if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
                 allowed_types = [allowed_types]
+
+            # allow all floats?
+            if any(i in self.all_floats for i in allowed_types):
+                for this in self.all_floats:
+                    if this not in allowed_types:
+                        allowed_types.append(this)
+
+            # allow all ints?
+            if any(i in self.all_ints for i in allowed_types):
+                for this in self.all_ints:
+                    if this not in allowed_types:
+                        allowed_types.append(this)
+
             if not self[varname].dtype in allowed_types:
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong type. Should be " +
                            "one of the following: " + str(allowed_types))
@@ -795,8 +758,21 @@ class UC2Data(xarray.Dataset):
                                    "Variable '" + varname + "' has attribute '" + attrname + "' defined. Not allowed.")
 
         if allowed_types:
-            if type(allowed_types) == type:
+            if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
                 allowed_types = [allowed_types]
+
+            # allow all floats?
+            if any(i in self.all_floats for i in allowed_types):
+                for this in self.all_floats:
+                    if this not in allowed_types:
+                        allowed_types.append(this)
+
+            # allow all ints?
+            if any(i in self.all_ints for i in allowed_types):
+                for this in self.all_ints:
+                    if this not in allowed_types:
+                        allowed_types.append(this)
+
             if not type(self[varname].attrs[attrname]) in allowed_types:
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong type. Should be " +
@@ -839,8 +815,21 @@ class UC2Data(xarray.Dataset):
                 return result
 
         if allowed_types:
-            if type(allowed_types) == type:
+            if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
                 allowed_types = [allowed_types]
+
+            # allow all floats?
+            if any(i in self.all_floats for i in allowed_types):
+                for this in self.all_floats:
+                    if this not in allowed_types:
+                        allowed_types.append(this)
+
+            # allow all ints?
+            if any(i in self.all_ints for i in allowed_types):
+                for this in self.all_ints:
+                    if this not in allowed_types:
+                        allowed_types.append(this)
+
             if not type(self.attrs[attrname]) in allowed_types:
                 result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong type. Should be " +
                            "one of the following: " + str(allowed_types))
