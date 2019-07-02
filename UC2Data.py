@@ -27,6 +27,8 @@ class UC2Data(xarray.Dataset):
     all_floats = [float, numpy.float, numpy.float16, numpy.float32, numpy.float64]
     all_ints = [int, numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.int64]
 
+    allowed_featuretypes = ["timeSeries", "timeSeriesProfile", "trajectory"]
+
     allowed_aggregations = dict()
     with open(aggregations_file, encoding="utf-8") as csvfile:
         spamreader = csv.reader(csvfile, delimiter='|', quotechar='"')
@@ -86,16 +88,13 @@ class UC2Data(xarray.Dataset):
         self.update(tmp, inplace=True)
         self.attrs = tmp.attrs
 
+
+    def uc2_check(self):
+
         if "featureType" in self.attrs.keys():
             self.featuretype = self.attrs["featureType"]
         else:
             self.featuretype = "None"
-
-        self.check_result = self.uc2_check()
-
-        self.filename = self.get_filename()
-
-    def uc2_check(self):
 
         is_ts = self.featuretype == "timeSeries"
         is_tsp = self.featuretype == "timeSeriesProfile"
@@ -143,8 +142,7 @@ class UC2Data(xarray.Dataset):
 
         if not is_grid:
             result["featureType"].add(self.check_glob_attr("featureType", False, str,
-                                                           allowed_values=["timeSeries", "timeSeriesProfile",
-                                                                           "trajectory"]))
+                                                           allowed_values=self.allowed_featuretypes))
             if not result["featureType"]:
                 return result
 
@@ -432,12 +430,17 @@ class UC2Data(xarray.Dataset):
 
         dv = dict()
         data_content_var_names = list()
-        known_coordinates = ["station_name", "station_h", "z", "z_bounds",
-                             "crs", "vrs", "x", "xu", "xs", "y", "yv", "ys", "z", "zw", "zs",
-                             "lon", "lonu", "lonv", "lons", "lat", "latu", "latv", "lats",
-                             "E_UTM", "Eu_UTM", "Ev_UTM", "Es_UTM", "N_UTM", "Nu_UTM", "Nv_UTM", "Ns_UTM",
+        dont_check = ["station_h", "crs", "vrs"]
+        known_coordinates = ["station_name",
+                             "z", "zw", "zs",
+                             "x", "xu", "xs",
+                             "y", "yv", "ys",
+                             "lon", "lonu", "lonv", "lons",
+                             "lat", "latu", "latv", "lats",
+                             "E_UTM", "Eu_UTM", "Ev_UTM", "Es_UTM",
+                             "N_UTM", "Nu_UTM", "Nv_UTM", "Ns_UTM",
                              "s",
-                             "time", "time_bounds",
+                             "time",
                              "azimuth", "azimuths", "zenith", "zeniths"]
         if is_ts:
             data_dims = ("station", "ntime")
@@ -448,122 +451,143 @@ class UC2Data(xarray.Dataset):
         else:
             data_dims = None
 
+        # get all coordinates that appear in this file
+        existing_coordinates = list()
         for ikey in self.variables:
+            if (ikey in known_coordinates) or ikey.startswith("bands_"):
+                existing_coordinates.append(ikey)
+        existing_coordinates.sort()
 
+        for ikey in self.variables:
+            if ikey in dont_check:
+                continue
             is_normal = ikey in self.allowed_variables.keys()
             is_agg = ikey in [a + "_" + b for a in self.allowed_variables.keys() for b in self.allowed_aggregations.keys()]
             is_bounds = ikey.endswith("_bounds")
             is_bands = ikey.startswith("bands_")
             is_ancillary = ikey.startswith("ancillary_")
-            is_coordinate = ikey in known_coordinates or is_bands
+            is_coordinate = ikey in existing_coordinates
 
             if not any([is_normal, is_agg, is_bands, is_bounds, is_bands, is_ancillary, is_coordinate]):
                 result[ikey].add(ResultCode.ERROR, "'" + ikey + "' is not a supported variable name.")
 
-            if is_bands and not is_bounds:
+            if is_bands and not is_bounds: # if is_bands and is_bounds: that would mean, e.g., "bands_xyz_bounds" which is actually only bounds
                 # Check bands (bands are coordinate variables => need dim of same name)
                 result[ikey].add(self.check_var(ikey, True, dims=ikey, fill_allowed=False, must_be_sorted_along=ikey))
-            else:
-                if is_bounds:
+            elif is_bounds:
 
-
-                    main_key = ikey[:-7]
-                    if main_key not in self:
-                        result[ikey].add(ResultCode.ERROR,
-                                         "Variable '" + ikey + "' seems to be a bounds variable " \
-                                                               "but there is no main variable (expected '" + \
-                                         main_key + "')")
-                    else:
-                        result[main_key].add(self.check_var_attr(main_key, "bounds", True,
-                                                                 allowed_types=str, allowed_values=ikey))
-                        result[ikey].add(self.check_var(ikey, True, allowed_types=self[main_key].dtype,
-                                                        dims=self[main_key].dims + ("nv",)))
-                        if len(self[ikey].attrs) != 0:
-                            result[ikey]["attributes"].add(ResultCode.ERROR,
-                                                           "Variable '" + ikey + "' must not have any attributes.")
-                    # Time must be end of time period
-                    if ikey == "time_bounds":
-                        if not self[main_key][0].equals(self[ikey][0, :, 1]):
-                            result[ikey]["variable"].add(ResultCode.ERROR,
-                                                         "second column of 'time_bounds' must equal data of variable 'time'")
-                    # z must be in middle of z bounds
-                    if ikey == "z_bounds":
-                        z_bound_lower = self[ikey][0, :, 0]
-                        z_bound_upper = self[ikey][0, :, 1]
-                        z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
-                        if not numpy.allclose(self[main_key][0].values, z_bound_mid.values, equal_nan=True):
-                            result[ikey]["variable"].add(ResultCode.ERROR,
-                                                         "values of z must be in the middle between z_bounds.")
-
-
-                elif is_ancillary:
-                    # Check ancillary
-                    pass
-                elif is_coordinate:
-                    # What to do?
-                    pass
+                main_key = ikey[:-7]
+                if main_key not in self:
+                    result[ikey].add(ResultCode.ERROR,
+                                     "Variable '" + ikey + "' seems to be a bounds variable " \
+                                                           "but there is no main variable (expected '" + \
+                                     main_key + "')")
                 else:
-                    if is_normal:
-                        expected_data_content = ikey
-                    elif is_agg:
-                        expected_data_content = "_".join(ikey[0].split("_")[:-1])
-                    else:
-                        raise Exception("unknown variable type")
-                    if expected_data_content not in data_content_var_names:
-                        data_content_var_names.append(expected_data_content)
-
-                    # Check var
-                    result[ikey]["variable"].add(self.check_var(ikey, True, dims=data_dims))
-
-                    # Check obligatory attributes
-                    result[ikey]["long_name"].add(self.check_var_attr(ikey, "long_name", True, allowed_types=str,
-                                                                      allowed_values=self.allowed_variables[ikey]["long_name"]))
-                    result[ikey]["units"].add(self.check_var_attr(ikey, "units", True, allowed_types=str)) # TODO: check conversion
-                    result[ikey]["_FillValue"].add(self.check_var_attr(ikey, "_FillValue", True, allowed_types=self[ikey].dtype,
-                                                                       allowed_values=-9999))
-                    result[ikey]["coordinates"].add(self.check_var_attr(ikey, "coordinates", True, allowed_types=str)) # TODO: Check consistency
-                    result[ikey]["grid_mapping"].add(self.check_var_attr(ikey, "grid_mapping", True, allowed_types=str,
-                                                                         allowed_values="crs"))
-                    # other attributes
-                    result[ikey]["standard_name"].add(self.check_var_attr(ikey, "standard_name",
-                                                                          self.allowed_variables[ikey]["standard_name"] != "",
-                                                                          allowed_types=str,
-                                                                          allowed_values=self.allowed_variables[ikey]["standard_name"],
-                                                                          must_not_exist=self.allowed_variables[ikey]["standard_name"] == ""))
-                    result[ikey]["units_alt"].add(self.check_var_attr(ikey, "units_alt", False, allowed_types=str)) # TODO: check conversion
-                    result[ikey]["uncertainty_rel"].add(self.check_var_attr(ikey, "uncertainty_rel", False,
-                                                                            allowed_types=float))
-                    result[ikey]["processing_level"].add(self.check_var_attr(ikey, "processing_level", False,
-                                                                             allowed_types=int, allowed_range=[0,3]))
-                    result[ikey]["processing_info"].add(self.check_var_attr(ikey, "processing_info", False,
-                                                                            allowed_types=str))
-                    result[ikey]["instrument_name"].add(self.check_var_attr(ikey, "instrument_name", False,
-                                                                            allowed_types=str))
-                    result[ikey]["instrument_nr"].add(self.check_var_attr(ikey, "instrument_nr", False,
-                                                                          allowed_types=str))
-                    result[ikey]["instrument_sn"].add(self.check_var_attr(ikey, "instrument_sn", False,
-                                                                          allowed_types=str))
-
-                    # Check ancillary_variables attribute
-                    if "ancillary_variables" in self[ikey].attrs.keys():
-                        anc_var = self[ikey].attrs["ancillary_variables"].split(" ")
-                        for i in anc_var:
-                            if i not in self.keys():
-                                result[ikey]["ancillary_variables"].add(ResultCode.ERROR,
-                                                                        "Expected ancillary variable '"+
-                                                                        i+"' not found in file.")
-                        result[ikey]["ancillary_variables"].add(self.check_var_attr(ikey, "ancillary_variables",
-                                                                                    True, allowed_types=str))
+                    result[main_key].add(self.check_var_attr(main_key, "bounds", True,
+                                                             allowed_types=str, allowed_values=ikey))
+                    result[ikey].add(self.check_var(ikey, True, allowed_types=self[main_key].dtype,
+                                                    dims=self[main_key].dims + ("nv",)))
+                    if len(self[ikey].attrs) != 0:
+                        result[ikey]["attributes"].add(ResultCode.ERROR,
+                                                       "Variable '" + ikey + "' must not have any attributes.")
+                # Time must be end of time period
+                if ikey == "time_bounds":
+                    if not self[main_key][0].equals(self[ikey][0, :, 1]):
+                        result[ikey]["variable"].add(ResultCode.ERROR,
+                                                     "second column of 'time_bounds' must equal data of variable 'time'")
+                # z must be in middle of z bounds
+                if ikey == "z_bounds":
+                    z_bound_lower = self[ikey][0, :, 0]
+                    z_bound_upper = self[ikey][0, :, 1]
+                    z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
+                    if not numpy.allclose(self[main_key][0].values, z_bound_mid.values, equal_nan=True):
+                        result[ikey]["variable"].add(ResultCode.ERROR,
+                                                     "values of z must be in the middle between z_bounds.")
 
 
-                    # Check bounds attribute
-                    if "bounds" in self[ikey].attrs.keys():
-                        if ikey + "_bounds" not in self.keys():
-                            result[ikey]["bounds"].add(ResultCode.ERROR,
-                                                       "Expected variable '" + ikey + "_bounds' not found.")
-                        result[ikey]["bounds"].add(self.check_var_attr(ikey, "bounds", True,
-                                                                       allowed_types=str,
-                                                                       allowed_values=ikey + "_bounds"))
+            elif is_ancillary:
+                # Check ancillary
+                # This is an inner loop over all variables again, to find the one that references this ancillary variable.
+                for tmpKey in self.variables:
+                    if "ancillary_variables" in self[tmpKey].attrs.keys():
+                        if ikey in self[tmpKey].attrs["ancillary_variables"].split(" "):
+                            main_var = self[tmpKey]
+                            result[ikey].add(self.check_var(ikey, True, dims=main_var.dims))
+
+            elif is_coordinate:
+                # What to do?
+                pass
+            else:
+                if is_normal:
+                    expected_data_content = ikey
+                elif is_agg:
+                    expected_data_content = "_".join(ikey[0].split("_")[:-1])
+                else:
+                    raise Exception("Unexpected var type: "+ikey)
+
+                if expected_data_content not in data_content_var_names:
+                    data_content_var_names.append(expected_data_content)
+
+                # Check var
+                result[ikey]["variable"].add(self.check_var(ikey, True, dims=data_dims))
+
+                # Check obligatory attributes
+                result[ikey]["long_name"].add(self.check_var_attr(ikey, "long_name", True, allowed_types=str,
+                                                                  allowed_values=self.allowed_variables[ikey]["long_name"]))
+                result[ikey]["units"].add(self.check_var_attr(ikey, "units", True, allowed_types=str)) # TODO: check conversion
+                result[ikey]["_FillValue"].add(self.check_var_attr(ikey, "_FillValue", True, allowed_types=self[ikey].dtype,
+                                                                   allowed_values=-9999))
+                result[ikey]["coordinates"].add(self.check_var_attr(ikey, "coordinates", True, allowed_types=str)) # TODO: Check consistency
+                if result[ikey]["coordinates"]:
+                    this_coords = self[ikey].attrs["coordinates"].split(" ")
+                    this_coords.sort()
+                    if this_coords != existing_coordinates:
+                        result[ikey]["coordinates"].add(ResultCode.ERROR, "variable attribute 'coordinates' must"+
+                                                        "contain all (auxiliary) coordinates ("+
+                                                        ", ".join(existing_coordinates)+")")
+
+                result[ikey]["grid_mapping"].add(self.check_var_attr(ikey, "grid_mapping", True, allowed_types=str,
+                                                                     allowed_values="crs"))
+                # other attributes
+                result[ikey]["standard_name"].add(self.check_var_attr(ikey, "standard_name",
+                                                                      self.allowed_variables[ikey]["standard_name"] != "",
+                                                                      allowed_types=str,
+                                                                      allowed_values=self.allowed_variables[ikey]["standard_name"],
+                                                                      must_not_exist=self.allowed_variables[ikey]["standard_name"] == ""))
+                result[ikey]["units_alt"].add(self.check_var_attr(ikey, "units_alt", False, allowed_types=str)) # TODO: check conversion
+                result[ikey]["uncertainty_rel"].add(self.check_var_attr(ikey, "uncertainty_rel", False,
+                                                                        allowed_types=float))
+                result[ikey]["processing_level"].add(self.check_var_attr(ikey, "processing_level", False,
+                                                                         allowed_types=int, allowed_range=[0,3]))
+                result[ikey]["processing_info"].add(self.check_var_attr(ikey, "processing_info", False,
+                                                                        allowed_types=str))
+                result[ikey]["instrument_name"].add(self.check_var_attr(ikey, "instrument_name", False,
+                                                                        allowed_types=str))
+                result[ikey]["instrument_nr"].add(self.check_var_attr(ikey, "instrument_nr", False,
+                                                                      allowed_types=str))
+                result[ikey]["instrument_sn"].add(self.check_var_attr(ikey, "instrument_sn", False,
+                                                                      allowed_types=str))
+
+                # Check ancillary_variables attribute
+                if "ancillary_variables" in self[ikey].attrs.keys():
+                    anc_var = self[ikey].attrs["ancillary_variables"].split(" ")
+                    for i in anc_var:
+                        if i not in self.keys():
+                            result[ikey]["ancillary_variables"].add(ResultCode.ERROR,
+                                                                    "Expected ancillary variable '"+
+                                                                    i+"' not found in file.")
+                    result[ikey]["ancillary_variables"].add(self.check_var_attr(ikey, "ancillary_variables",
+                                                                                True, allowed_types=str))
+
+
+                # Check bounds attribute
+                if "bounds" in self[ikey].attrs.keys():
+                    if ikey + "_bounds" not in self.keys():
+                        result[ikey]["bounds"].add(ResultCode.ERROR,
+                                                   "Expected variable '" + ikey + "_bounds' not found.")
+                    result[ikey]["bounds"].add(self.check_var_attr(ikey, "bounds", True,
+                                                                   allowed_types=str,
+                                                                   allowed_values=ikey + "_bounds"))
 
 
 
@@ -596,7 +620,7 @@ class UC2Data(xarray.Dataset):
         # TODO: Check geo between var and glob att
         ###
 
-        return result
+        self.check_result = result
 
     def check_xy(self, xy):
         if not xy in ["x", "y", "lon", "lat", "E_UTM", "N_UTM",
@@ -864,6 +888,10 @@ class UC2Data(xarray.Dataset):
     def get_filename(self):
         attrs = ["campaign", "location", "site", "acronym", "data_content", "origin_time", "version"]
         vals = list()
+
+        if self.check_result is None:
+            self.uc2_check()
+
         for i in attrs:
             if not self.check_result[i]:
                 raise Exception("Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity test.")
@@ -874,7 +902,10 @@ class UC2Data(xarray.Dataset):
                 vals.append(str(self.attrs[i]).zfill(3))
             else:
                 vals.append(self.attrs[i].replace("-", "_"))
-        return "_".join(vals) + ".nc"
+
+        filename = "_".join(vals) + ".nc"
+        self.filename = filename
+        return filename
 
 
 def check_person_field(string, attrname):
