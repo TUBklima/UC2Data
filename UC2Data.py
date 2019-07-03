@@ -8,7 +8,8 @@ import re
 import calendar
 from numpy.core.defchararray import add as str_add
 from collections import OrderedDict
-from typing import Union
+import netCDF4
+
 
 is_win = sys.platform in ['win32', 'win64']
 if not is_win:
@@ -101,16 +102,20 @@ class UC2Data(xarray.Dataset):
         is_traj = self.featuretype == "trajectory"
         is_grid = self.featuretype == "None"
 
+        result = CheckResult()
+
+        tmp = netCDF4.Dataset(self.path)
+        if any([x.isunlimited() for k, x in tmp.dimensions.items()]):
+            result["unlimited_dim"].add(ResultCode.ERROR, "Unlimited dimensions not supported.")
+
         ###
         # Check global attributes
         ###
 
-        result = CheckResult()
-
         result["title"].add(self.check_glob_attr("title", True, str))
         result["data_content"].add(self.check_glob_attr("data_content", True, str,
                                                         allowed_values=UC2Data.allowed_data_contents,
-                                                        max_strlen=16))  # TODO: Redo this test when variable is checked
+                                                        max_strlen=16))
         result["source"].add(self.check_glob_attr("source", True, str))
         result["version"].add(self.check_glob_attr("version", True,
                                                    int,
@@ -127,7 +132,7 @@ class UC2Data(xarray.Dataset):
         result["creation_time"].add(self.check_glob_attr("creation_time", True, str,
                                                          regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
         result["origin_time"].add(self.check_glob_attr("origin_time", True, str,
-                                                       regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))  # TODO: Check later with time units.
+                                                       regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
         result["origin_lon"].add(self.check_glob_attr("origin_lon", True, float,
                                                       allowed_range=[-180, 180]))
         result["origin_lat"].add(self.check_glob_attr("origin_lat", True, float,
@@ -226,15 +231,12 @@ class UC2Data(xarray.Dataset):
         allowed_range = None
         if is_ts or is_tsp:
             time_dims = ("station", "ntime")
-            time_bounds_dims = ("station", "ntime", "nv")
             time_dim_name = "ntime"
         elif is_traj:
-            time_dims = ("trag", "ntime")
-            time_bounds_dims = ("traj", "ntime", "nv")
+            time_dims = ("traj", "ntime")
             time_dim_name = "ntime"
         else:
             time_dims = ("time")
-            time_bounds_dims = ("time", "nv")
             time_dim_name = "time"
 
         if is_iop:
@@ -290,17 +292,18 @@ class UC2Data(xarray.Dataset):
             self.check_var("z", True, allowed_types=[int, float], dims=z_dims,
                            must_be_sorted_along=must_be_sorted_along,
                            fill_allowed=not is_grid))
-        result["z"]["long_name"].add(
-            self.check_var_attr("z", "long_name", True, allowed_types=str, allowed_values="height above origin"))
-        result["z"]["axis"].add(self.check_var_attr("z", "axis", True, allowed_types=str, allowed_values="Z"))
-        result["z"]["positive"].add(self.check_var_attr("z", "positive", True, allowed_types=str, allowed_values="up"))
-        # Bounds will be checked below with all other variables.
-        if result["z"]:
-            if result["origin_z"]:
-                result["z"]["standard_name"].add(
-                    self.check_var_attr("z", "standard_name", self.attrs["origin_z"] == 0, allowed_types=str,
-                                        allowed_values="height_above_mean_sea_level",
-                                        must_not_exist=self.attrs["origin_z"] != 0))
+        if result["z"]["variable"]:
+            result["z"]["long_name"].add(
+                self.check_var_attr("z", "long_name", True, allowed_types=str, allowed_values="height above origin"))
+            result["z"]["axis"].add(self.check_var_attr("z", "axis", True, allowed_types=str, allowed_values="Z"))
+            result["z"]["positive"].add(self.check_var_attr("z", "positive", True, allowed_types=str, allowed_values="up"))
+            # Bounds will be checked below with all other variables.
+            if result["z"]:
+                if result["origin_z"]:
+                    result["z"]["standard_name"].add(
+                        self.check_var_attr("z", "standard_name", self.attrs["origin_z"] == 0, allowed_types=str,
+                                            allowed_values="height_above_mean_sea_level",
+                                            must_not_exist=self.attrs["origin_z"] != 0))
 
         if is_ts or is_tsp:
             result["station_h"].add(self.check_var("station_h", True,
@@ -341,29 +344,30 @@ class UC2Data(xarray.Dataset):
 
         # crs
         result["crs"]["variable"].add(self.check_var("crs", True))
-        result["crs"]["standard_name"].add(self.check_var_attr("crs", "standard_name", False, must_not_exist=True))
-        result["crs"]["long_name"].add(self.check_var_attr("crs", "long_name", True,
-                                                           allowed_values="coordinate reference system"))
-        result["crs"]["grid_mapping_name"].add(self.check_var_attr("crs", "grid_mapping_name", True,
-                                                                   allowed_values="transverse_mercator"))
-        result["crs"]["semi_major_axis"].add(self.check_var_attr("crs", "semi_major_axis", True,
-                                                                 allowed_values=6378137))
-        result["crs"]["inverse_flattening"].add(self.check_var_attr("crs", "inverse_flattening", True,
-                                                                    allowed_range=[298.2572, 298.2573]))
-        result["crs"]["longitude_of_prime_meridian"].add(self.check_var_attr("crs", "longitude_of_prime_meridian",
-                                                                             True, allowed_values=0))
-        result["crs"]["longitude_of_central_meridian"].add(self.check_var_attr("crs", "longitude_of_central_meridian",
-                                                                               True, allowed_values=[3, 9, 15]))
-        result["crs"]["scale_factor_at_central_meridian"].add(
-            self.check_var_attr("crs", "scale_factor_at_central_meridian",
-                                True, allowed_range=[0.9995, 0.9997]))
-        result["crs"]["latitude_of_projection_origin"].add(self.check_var_attr("crs", "latitude_of_projection_origin",
-                                                                               True, allowed_values=0))
-        result["crs"]["false_easting"].add(self.check_var_attr("crs", "false_easting", True, allowed_values=500000))
-        result["crs"]["false_northing"].add(self.check_var_attr("crs", "false_northing", True, allowed_values=0))
-        result["crs"]["units"].add(self.check_var_attr("crs", "units", True, allowed_values="m"))
-        result["crs"]["epsg_code"].add(self.check_var_attr("crs", "epsg_code", True,
-                                                           allowed_values=["EPSG:25831", "EPSG:25832", "EPSG:25833"]))
+        if result["crs"]:
+            result["crs"]["standard_name"].add(self.check_var_attr("crs", "standard_name", False, must_not_exist=True))
+            result["crs"]["long_name"].add(self.check_var_attr("crs", "long_name", True,
+                                                               allowed_values="coordinate reference system"))
+            result["crs"]["grid_mapping_name"].add(self.check_var_attr("crs", "grid_mapping_name", True,
+                                                                       allowed_values="transverse_mercator"))
+            result["crs"]["semi_major_axis"].add(self.check_var_attr("crs", "semi_major_axis", True,
+                                                                     allowed_values=6378137))
+            result["crs"]["inverse_flattening"].add(self.check_var_attr("crs", "inverse_flattening", True,
+                                                                        allowed_range=[298.2572, 298.2573]))
+            result["crs"]["longitude_of_prime_meridian"].add(self.check_var_attr("crs", "longitude_of_prime_meridian",
+                                                                                 True, allowed_values=0))
+            result["crs"]["longitude_of_central_meridian"].add(self.check_var_attr("crs", "longitude_of_central_meridian",
+                                                                                   True, allowed_values=[3, 9, 15]))
+            result["crs"]["scale_factor_at_central_meridian"].add(
+                self.check_var_attr("crs", "scale_factor_at_central_meridian",
+                                    True, allowed_range=[0.9995, 0.9997]))
+            result["crs"]["latitude_of_projection_origin"].add(self.check_var_attr("crs", "latitude_of_projection_origin",
+                                                                                   True, allowed_values=0))
+            result["crs"]["false_easting"].add(self.check_var_attr("crs", "false_easting", True, allowed_values=500000))
+            result["crs"]["false_northing"].add(self.check_var_attr("crs", "false_northing", True, allowed_values=0))
+            result["crs"]["units"].add(self.check_var_attr("crs", "units", True, allowed_values="m"))
+            result["crs"]["epsg_code"].add(self.check_var_attr("crs", "epsg_code", True,
+                                                               allowed_values=["EPSG:25831", "EPSG:25832", "EPSG:25833"]))
 
         #
         # other (auxiliary) coordinate variables
@@ -412,7 +416,7 @@ class UC2Data(xarray.Dataset):
             result["height"]["variable"].add(self.check_var("height", True,
                                                             allowed_types=[int, float]))
             if result["height"]["variable"]:
-                if self["height"].dims != () or self["height"].dims != ("traj", "ntime"):
+                if self["height"].dims != () and self["height"].dims != ("traj", "ntime"):
                     result["height"]["variable"].add(ResultCode.ERROR, "Variable 'height' must either be scalar " +
                                                      "or have dimensions (traj, ntime).")
             if result["height"]["variable"]:
@@ -430,8 +434,8 @@ class UC2Data(xarray.Dataset):
 
         dv = dict()
         data_content_var_names = list()
-        dont_check = ["station_h", "crs", "vrs"]
-        known_coordinates = ["station_name",
+        dont_check = ["station_h", "crs", "vrs", "height"]
+        known_coordinates = ["station_name", "traj_name",
                              "z", "zw", "zs",
                              "x", "xu", "xs",
                              "y", "yv", "ys",
@@ -470,6 +474,7 @@ class UC2Data(xarray.Dataset):
 
             if not any([is_normal, is_agg, is_bands, is_bounds, is_bands, is_ancillary, is_coordinate]):
                 result[ikey].add(ResultCode.ERROR, "'" + ikey + "' is not a supported variable name.")
+                continue
 
             if is_bands and not is_bounds: # if is_bands and is_bounds: that would mean, e.g., "bands_xyz_bounds" which is actually only bounds
                 # Check bands (bands are coordinate variables => need dim of same name)
@@ -492,15 +497,15 @@ class UC2Data(xarray.Dataset):
                                                        "Variable '" + ikey + "' must not have any attributes.")
                 # Time must be end of time period
                 if ikey == "time_bounds":
-                    if not self[main_key][0].equals(self[ikey][0, :, 1]):
+                    if not self[main_key].equals(self[ikey][..., 1]):
                         result[ikey]["variable"].add(ResultCode.ERROR,
                                                      "second column of 'time_bounds' must equal data of variable 'time'")
                 # z must be in middle of z bounds
                 if ikey == "z_bounds":
-                    z_bound_lower = self[ikey][0, :, 0]
-                    z_bound_upper = self[ikey][0, :, 1]
+                    z_bound_lower = self[ikey][..., 0]
+                    z_bound_upper = self[ikey][..., 1]
                     z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
-                    if not numpy.allclose(self[main_key][0].values, z_bound_mid.values, equal_nan=True):
+                    if not numpy.allclose(self[main_key].values, z_bound_mid.values, equal_nan=True):
                         result[ikey]["variable"].add(ResultCode.ERROR,
                                                      "values of z must be in the middle between z_bounds.")
 
@@ -1010,4 +1015,16 @@ class CheckResult(OrderedDict):
             out.extend(list(str_add("    ", v.__repr__().split("\n"))))
 
         out = "\n".join(out)
+        return out
+
+    def errors(self):
+        out = CheckResult()
+        for i in self.result:
+            if not i:
+                out.add(i)
+
+        for k, v in self.items():
+            if not v:
+                out[k].add(v.errors())
+
         return out
