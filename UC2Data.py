@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pyproj
 import xarray
 import numpy
 import sys
@@ -85,7 +86,8 @@ class UC2Data(xarray.Dataset):
         self.filename = None
         self.check_result = None
         super().__init__()
-        tmp = xarray.open_dataset(self.path, decode_cf=False)
+        # decode and mask are False for checking file without xarray's interpretation
+        tmp = xarray.open_dataset(self.path, decode_cf=False, mask_and_scale=False)
         self.update(tmp, inplace=True)
         self.attrs = tmp.attrs
 
@@ -103,10 +105,6 @@ class UC2Data(xarray.Dataset):
         is_grid = self.featuretype == "None"
 
         result = CheckResult()
-
-        tmp = netCDF4.Dataset(self.path)
-        if any([x.isunlimited() for k, x in tmp.dimensions.items()]):
-            result["unlimited_dim"].add(ResultCode.ERROR, "Unlimited dimensions not supported.")
 
         ###
         # Check global attributes
@@ -204,11 +202,14 @@ class UC2Data(xarray.Dataset):
         # Check dims
         ###
 
-        # TODO: There must not be any UNLIMITED dimension.
-        if "nv" in self.dims.keys():
+        tmp = netCDF4.Dataset(self.path)
+        if any([x.isunlimited() for k, x in tmp.dimensions.items()]):
+            result["unlimited_dim"].add(ResultCode.ERROR, "Unlimited dimensions not supported.")
+
+        if "nv" in self.dims:
             if self.dims["nv"] != 2:
                 result["nv_is_2"].add(ResultCode.ERROR, "Dimension 'nv' must have size of 2.")
-        if "max_name_len" in self.dims.keys():
+        if "max_name_len" in self.dims:
             if self.dims["max_name_len"] != 32:
                 result["max_name_len_is_32"].add(ResultCode.ERROR, "Dimension 'max_name_len' must have size of 32.")
 
@@ -236,8 +237,11 @@ class UC2Data(xarray.Dataset):
             time_dims = ("traj", "ntime")
             time_dim_name = "ntime"
         else:
-            time_dims = ("time")
-            time_dim_name = "time"
+            if "ncol" in self.dims: # pixel-based surfaces
+                pass # TODO: Wird es erlaubt, pixel ohne time anzulegen?
+            else:
+                time_dims = ("time")
+                time_dim_name = "time"
 
         if is_iop:
             allowed_range = [.01, 86400]
@@ -251,7 +255,7 @@ class UC2Data(xarray.Dataset):
                            allowed_range=allowed_range, dims=time_dims,
                            must_be_sorted_along=time_dim_name,
                            decrease_sort_allowed=False,
-                           fill_allowed=not is_grid))  # TODO: If coordinate var, then no missing values allowed.
+                           fill_allowed=not is_grid))
         if result["time"]["variable"]:
             # bounds are checked below together with other variables.
             result["time"]["long_name"].add(
@@ -453,7 +457,10 @@ class UC2Data(xarray.Dataset):
         elif is_traj:
             data_dims = ("traj", "ntime")
         else:
-            data_dims = None
+            if "ncol" in self.dims: # pixel-based surfaces
+                data_dims = ("time", "nrow", "ncol") # TODO: Wird es erlaubt werden, pixel ohne time abzulegen?
+            else:
+                data_dims = None
 
         # get all coordinates that appear in this file
         existing_coordinates = list()
@@ -542,14 +549,14 @@ class UC2Data(xarray.Dataset):
                 result[ikey]["units"].add(self.check_var_attr(ikey, "units", True, allowed_types=str)) # TODO: check conversion
                 result[ikey]["_FillValue"].add(self.check_var_attr(ikey, "_FillValue", True, allowed_types=self[ikey].dtype,
                                                                    allowed_values=-9999))
-                result[ikey]["coordinates"].add(self.check_var_attr(ikey, "coordinates", True, allowed_types=str)) # TODO: Check consistency
+                result[ikey]["coordinates"].add(self.check_var_attr(ikey, "coordinates", True, allowed_types=str))
                 if result[ikey]["coordinates"]:
                     this_coords = self[ikey].attrs["coordinates"].split(" ")
                     this_coords.sort()
                     if this_coords != existing_coordinates:
-                        result[ikey]["coordinates"].add(ResultCode.ERROR, "variable attribute 'coordinates' must"+
-                                                        "contain all (auxiliary) coordinates ("+
-                                                        ", ".join(existing_coordinates)+")")
+                        result[ikey]["coordinates"].add(ResultCode.WARNING, "variable attribute 'coordinates' does not "+
+                                                        "contain all (auxiliary) coordinates. These are missing: "+
+                                                        str(set(existing_coordinates).difference(set(this_coords))))
 
                 result[ikey]["grid_mapping"].add(self.check_var_attr(ikey, "grid_mapping", True, allowed_types=str,
                                                                      allowed_values="crs"))
@@ -605,34 +612,59 @@ class UC2Data(xarray.Dataset):
                                                data_content_var_names[0] + "'. Expected global attribute 'data_content'" +
                                                " to be '"+data_content_var_names[0]+"'.")
 
-
-
-
-            # TODO: Check for extension by agg_method
-            # TODO: Check agg_method with cell_methods
-            # TODO: Check flags, ancillaries and spectra
-            pass
-
-        # TODO: "all coordinate and auxiliary coordinate variables must be specified in the attribute coordinates of the respective data variable"
-        # TODO: If only one variable, data_content MUST be variable name.
+        # TODO: Check agg_method with cell_methods
         # TODO: If all variables have cell_methods with time:point then no time_bounds (and bounds attribute)
         # TODO: If all variables have cell_methods with z:point then no z_bounds (and bounds attribute)
-        # TODO: Need height variable for "trajectory"
-        # TODO: Check azimuth, zenith
-        # TODO: Check ranges of allowed values and "almost_equal"
 
         ###
-        # TODO: Check geo between var and glob att
+        # Check geo between var and glob att
         ###
+        # TODO: Still got to compare origin_lon/origin_x etc.
+        # TODO: Also still got to do the lons, lonu etc.
+        if result["crs"]:
+            if all([result["lon"], result["lat"], result["E_UTM"], result["N_UTM"]]):
+                utm = pyproj.CRS(self["crs"].attrs["epsg_code"].lower(), preserve_units=False)
+                geo = pyproj.CRS("epsg:4258")
+
+                # Only in case of grid can x/y and lon/lat have different dimensions
+                # x/y and E_UTM/N_UTM always have the same dimensions.
+                # if dimension s: All have same dims
+                # if dimension ncol: All have same dims
+                # if featureType: All have same dims
+
+                x = self["lon"].values.flatten()
+                y = self["lat"].values.flatten()
+                if self["lon"].dims != self["E_UTM"].dims:
+                    # must be un-rotated grid with E_UTM(x), N_UTM(y), lon(y,x), lat(y,x)
+                    E_UTM = numpy.tile(self["E_UTM"].values, (self["N_UTM"].shape[0],1))
+                    N_UTM = numpy.tile(self["N_UTM"].values, (self["E_UTM"].shape[0],1))
+                    N_UTM = numpy.transpose(N_UTM)
+                else:
+                    E_UTM = self["E_UTM"].values
+                    N_UTM = self["N_UTM"].values
+                E_UTM = E_UTM.flatten()
+                N_UTM = N_UTM.flatten()
+
+                eutm, nutm = pyproj.transform(geo, utm, y, x)
+                diff = numpy.concatenate((numpy.subtract(eutm, E_UTM), numpy.subtract(nutm, N_UTM)))
+
+                if max(abs(diff)) < 0.1:
+                    result["coordinate_transform"].add(ResultCode.OK)
+                elif max(abs(diff)) < 1:
+                    result["coordinate_transform"].add(ResultCode.WARNING, "UTM coordinates in file " +
+                                                       "differ from UTM coordinates calculated from lat/lon " +
+                                                       "by between 0 and 1 m.")
+                else:
+                    result["coordinate_transform"].add(ResultCode.ERROR, "UTM coordinates in file " +
+                                                       "do not match calculated UTM coordinates from lat/lon in file")
+
+        else:
+            result["coordinate_transform"].add(ResultCode.ERROR, "Cannot check geographic coordinates "+
+                                               "because of error in 'crs' variable.")
 
         self.check_result = result
 
     def check_xy(self, xy):
-        if not xy in ["x", "y", "lon", "lat", "E_UTM", "N_UTM",
-                      "xs", "ys", "lons", "lats", "Es_UTM", "Ns_UTM",
-                      "xu", "yv", "zw", "Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM",
-                      "lonu", "lonv", "latu", "latv"]:
-            raise Exception('Unexpected variable: ' + xy)
 
         if xy in ["xu", "yv", "zw", "Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM",
                   "lonu", "lonv", "latu", "latv"]:
@@ -650,18 +682,22 @@ class UC2Data(xarray.Dataset):
             dims = "s"
             sort_along = None
             fill_allowed = False
-        else:
+        elif xy in ["x", "y", "lon", "lat", "E_UTM", "N_UTM"]:
             if self.featuretype == "None":
-                if xy in ["x", "y"]:
-                    dims = xy
-                    sort_along = xy
-                elif xy in ["lon", "lat"]:
-                    dims = ("y", "x")
+                if "ncol" in self.dims: # pixel-based surfaces
+                    dims = ("nrow", "ncol")
                     sort_along = None
-                elif xy in ["E_UTM", "N_UTM"]:
-                    dims = "x" if xy == "E_UTM" else "y"
-                    sort_along = dims
-                fill_allowed = False
+                else:
+                    if xy in ["x", "y"]:
+                        dims = xy
+                        sort_along = xy
+                    elif xy in ["lon", "lat"]:
+                        dims = ("y", "x")
+                        sort_along = None
+                    elif xy in ["E_UTM", "N_UTM"]:
+                        dims = "x" if xy == "E_UTM" else "y"
+                        sort_along = dims
+                    fill_allowed = False
             elif self.featuretype in ["timeSeries", "timeSeriesProfile"]:
                 dims = "station"
                 sort_along = None
@@ -672,7 +708,8 @@ class UC2Data(xarray.Dataset):
                 fill_allowed = True
             else:
                 raise Exception("Unexpected featureType")
-            # TODO: In case of "pixel-based surfaces" x has dimensions (time, nrow, ncol)
+        else:
+            raise Exception('Unexpected variable: ' + xy)
 
         out = CheckResult(ResultCode.OK)
         out["variable"].add(self.check_var(xy, True,
@@ -766,8 +803,14 @@ class UC2Data(xarray.Dataset):
                         result.add(ResultCode.ERROR,
                                    "Variable '" + varname + "' must be sorted along dimension '" + must_be_sorted_along + "'")
 
-        if fill_allowed:
-            pass  # TODO: do it.
+        if not fill_allowed:
+            if "_FillValue" in self[varname].attrs.keys():
+                result.add(ResultCode.WARNING, "Variable '" + varname + "' must not contain fill values but has "+
+                           "the variable '_FillValue'.")
+
+            if -9999 in self[varname]: # -9999 must always be the fill value
+                result.add(ResultCode.ERROR, "Variable '" + varname + "' contains -9999. No fill values " +
+                           "are allowed for this variables. -9999 is the fixed fill value in UC2 data standard.")
 
         return result
 
@@ -975,6 +1018,21 @@ class CheckResult(OrderedDict):
 
         return True
 
+    def contains_warnings(self):
+        if len(self.result) == 0:
+            has_warn = False
+        else:
+            has_warn = any([ir.result == ResultCode.WARNING for ir in self.result])
+
+        if has_warn:
+            return has_warn
+
+        for val in self.values():
+            if val.contains_warnings():
+                return True
+
+        return False
+
     def add(self, result, message=""):
 
         if isinstance(result, ResultCode):
@@ -1015,6 +1073,18 @@ class CheckResult(OrderedDict):
             out.extend(list(str_add("    ", v.__repr__().split("\n"))))
 
         out = "\n".join(out)
+        return out
+
+    def warnings(self):
+        out = CheckResult()
+        for i in self.result:
+            if i.result == ResultCode.WARNING:
+                out.add(i)
+
+        for k, v in self.items():
+            if v.contains_warnings():
+                out[k].add(v.warnings())
+
         return out
 
     def errors(self):

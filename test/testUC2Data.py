@@ -23,6 +23,7 @@ class TestCheckResult(unittest.TestCase):
             data = UC2Data(fn)
             data.uc2_check()
             self.assertTrue(data.check_result)
+            self.assertFalse(data.check_result.contains_warnings())
 
     def test_nonsense_fails(self):
         fn = self.file_dir + "nonsense.nc"
