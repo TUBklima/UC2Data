@@ -81,6 +81,12 @@ class UC2Data(xarray.Dataset):
         self.path = path
         self.featuretype = None
         self.filename = None
+        self.is_grid = None
+        self.is_ts = None
+        self.is_tsp = None
+        self.is_traj = None
+        self.is_iop = None
+        self.is_lto = None
         self.check_result = None
         super().__init__()
         # decode and mask are False for checking file without xarray's interpretation
@@ -95,10 +101,15 @@ class UC2Data(xarray.Dataset):
         else:
             self.featuretype = "None"
 
-        is_ts = self.featuretype == "timeSeries"
-        is_tsp = self.featuretype == "timeSeriesProfile"
-        is_traj = self.featuretype == "trajectory"
-        is_grid = self.featuretype == "None"
+        self.is_ts = self.featuretype == "timeSeries"
+        self.is_tsp = self.featuretype == "timeSeriesProfile"
+        self.is_traj = self.featuretype == "trajectory"
+        self.is_grid = self.featuretype == "None"
+        self.is_iop = False
+        self.is_lto = False
+        if "campaign" in self.attrs:
+            self.is_iop = self.attrs["campaign"][:3] == "IOP"
+            self.is_lto = self.attrs["campaign"] == "LTO"
 
         result = CheckResult()
 
@@ -106,93 +117,7 @@ class UC2Data(xarray.Dataset):
         # Check global attributes
         ###
 
-        result["title"].add(self.check_glob_attr("title", True, str))
-        result["data_content"].add(self.check_glob_attr("data_content", True, str,
-                                                        allowed_values=UC2Data.allowed_data_contents,
-                                                        max_strlen=16))
-        result["source"].add(self.check_glob_attr("source", True, str))
-        result["version"].add(self.check_glob_attr("version", True,
-                                                   int,
-                                                   allowed_values=list(
-                                                       range(1, 1000))))  # TODO: This is going to be checked in DMS
-        result["Conventions"].add(self.check_glob_attr("Conventions", True, str, allowed_values=["CF-1.7"]))
-        result["dependencies"].add(self.check_glob_attr("dependencies", True,
-                                                        str))  # TODO: This is going to be checked by DMS
-        result["history"].add(self.check_glob_attr("history", True, str))
-        result["references"].add(self.check_glob_attr("references", True, str))
-        result["comment"].add(self.check_glob_attr("comment", True, str))
-        result["keywords"].add(self.check_glob_attr("keywords", True, str))
-        result["licence"].add(self.check_glob_attr("licence", True, str, allowed_values=UC2Data.allowed_licences))
-        result["creation_time"].add(self.check_glob_attr("creation_time", True, str,
-                                                         regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
-        result["origin_time"].add(self.check_glob_attr("origin_time", True, str,
-                                                       regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
-        result["origin_lon"].add(self.check_glob_attr("origin_lon", True, float,
-                                                      allowed_range=[-180, 180]))
-        result["origin_lat"].add(self.check_glob_attr("origin_lat", True, float,
-                                                      allowed_range=[-90, 90]))
-        result["origin_x"].add(self.check_glob_attr("origin_x", True, float))
-        result["origin_y"].add(self.check_glob_attr("origin_y", True, float))
-        result["rotation_angle"].add(self.check_glob_attr("rotation_angle", True,
-                                                          float,
-                                                          allowed_range=[0, 360]))
-
-        # non-standard checks
-
-        if not is_grid:
-            result["featureType"].add(self.check_glob_attr("featureType", False, str,
-                                                           allowed_values=self.allowed_featuretypes))
-            if not result["featureType"]:
-                return result
-
-        result["origin_z"].add(self.check_glob_attr("origin_z", True, float,
-                                                    allowed_values=0 if (not is_grid) else None))
-        result["location"].add(self.check_glob_attr("location", True, str, allowed_values=UC2Data.allowed_locations))
-        result["site"].add(self.check_glob_attr("site", True, str, allowed_values=UC2Data.allowed_sites,
-                                                max_strlen=12))
-        if result["location"] and result["site"]:
-            if UC2Data.allowed_locations[UC2Data.allowed_sites.index(self.attrs["site"])] != self.attrs["location"]:
-                result["site"].add(ResultCode.ERROR, "site '" + self.attrs[
-                    "site"] + "' does not match location '" + self.attrs["location"] + "'")
-                result["location"].add(ResultCode.ERROR, "site '" + self.attrs[
-                    "site"] + "' does not match location '" + self.attrs["location"] + "'")
-
-        result["institution"].add(
-            self.check_glob_attr("institution", True, str, allowed_values=UC2Data.allowed_institutions))
-        result["acronym"].add(self.check_glob_attr("acronym", True, str, allowed_values=UC2Data.allowed_acronyms,
-                                                   max_strlen=12))
-        if result["institution"] and result["acronym"]:
-            if UC2Data.allowed_institutions.index(self.attrs["institution"]) != UC2Data.allowed_acronyms.index(
-                    self.attrs["acronym"]):
-                result["institution"].add(ResultCode.ERROR, "institution '" + self.attrs[
-                    "institution"] + "' does not match acronym '" + self.attrs["acronym"] + "'")
-                result["acronym"].add(ResultCode.ERROR, "institution '" + self.attrs[
-                    "institution"] + "' does not match acronym '" + self.attrs["acronym"] + "'")
-
-        result["author"].add(self.check_glob_attr("author", True, str))
-        if result["author"]:
-            if self.attrs["author"] != "":
-                result["author"].add(check_person_field(self.attrs["author"], "author"))
-
-        result["contact_person"].add(self.check_glob_attr("contact_person", True, str))
-        if result["contact_person"]:
-            result["contact_person"].add(check_person_field(self.attrs["contact_person"], "contact_person"))
-
-        is_iop = False
-        is_lto = False
-        result["campaign"].add(self.check_glob_attr("campaign", True, str, regex="^[A-Za-z0-9\._-]+$",
-                                                    max_strlen=12))
-        if result["campaign"]:
-            if self.attrs["campaign"][0:3] == "IOP":
-                is_iop = True
-                if (len(self.attrs["campaign"]) != 5) or (not int(self.attrs["campaign"][3:]) in range(1, 100)):
-                    result["campaign"].add(ResultCode.ERROR,
-                                           "Global attribute 'campaign': If IOP then string must be IOPxx")
-            elif self.attrs["campaign"][0:4] in ["VALR", "VALM"]:
-                is_lto = True
-                if (len(self.attrs["campaign"]) != 6) or (not int(self.attrs["campaign"][4:]) in range(1, 100)):
-                    result["campaign"].add(ResultCode.ERROR,
-                                           "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx")
+        result.add(self.check_all_glob_attr())
 
         ###
         # Check dims
@@ -213,423 +138,8 @@ class UC2Data(xarray.Dataset):
         # Check variables
         ###
 
-        # vrs
+        result.add(self.check_all_vars())
 
-        result["vrs"]["variable"].add(self.check_var("vrs", True, dims=()))
-        if result["vrs"]["variable"]:
-            result["vrs"]["long_name"].add(self.check_var_attr("vrs", "long_name", True, allowed_types=str,
-                                                               allowed_values="vertical reference system"))
-            result["vrs"]["system_name"].add(
-                self.check_var_attr("vrs", "system_name", True, allowed_types=str, allowed_values="DHHN2016"))
-            result["vrs"]["standard_name"].add(self.check_var_attr("vrs", "standard_name", False, must_not_exist=True))
-
-        # time
-
-        allowed_range = None
-        if is_ts or is_tsp:
-            time_dims = ("station", "ntime")
-            time_dim_name = "ntime"
-        elif is_traj:
-            time_dims = ("traj", "ntime")
-            time_dim_name = "ntime"
-        else:
-            if "ncol" in self.dims:  # pixel-based surfaces
-                pass  # TODO: Wird es erlaubt, pixel ohne time anzulegen?
-            else:
-                time_dims = ("time")
-                time_dim_name = "time"
-
-        if is_iop:
-            allowed_range = [.01, 86400]
-        elif is_lto:
-            if result["origin_time"]:
-                ndays = calendar.monthrange(int(self.attrs["origin_time"][0:4]), int(self.attrs["origin_time"][5:7]))[1]
-                allowed_range = [.01, ndays * 24 * 60 * 60]
-
-        result["time"]["variable"].add(
-            self.check_var("time", True, allowed_types=[int, float],
-                           allowed_range=allowed_range, dims=time_dims,
-                           must_be_sorted_along=time_dim_name,
-                           decrease_sort_allowed=False,
-                           fill_allowed=not is_grid))
-        if result["time"]["variable"]:
-            # bounds are checked below together with other variables.
-            result["time"]["long_name"].add(
-                self.check_var_attr("time", "long_name", True, allowed_types=str, allowed_values="time"))
-            result["time"]["standard_name"].add(self.check_var_attr("time", "standard_name", True, allowed_types=str,
-                                                                    allowed_values="time"))
-            result["time"]["calendar"].add(self.check_var_attr("time", "calendar", True, allowed_types=str,
-                                                               allowed_values="proleptic_gregorian"))
-            result["time"]["axis"].add(self.check_var_attr("time", "axis", True, allowed_types=str, allowed_values="T"))
-            result["time"]["fill_values"].add(
-                self.check_var_attr("time", "_FillValue", False, allowed_types=self["time"].dtype,
-                                    must_not_exist=is_grid))
-            result["time"]["units"].add(self.check_var_attr("time", "units", True, allowed_types=str,
-                                                            regex="seconds since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
-            if result["origin_time"] and result["time"]["units"]:
-                if self.attrs["origin_time"] != self["time"].units[14:]:
-                    result["time"]["origin_time"].add(ResultCode.ERROR,
-                                                      "Global attribute 'origin_time' does not match units of variable 'time'.")
-
-        # z
-
-        if is_grid:
-            z_dims = ("z")
-            must_be_sorted_along = "z"
-        elif is_ts:
-            z_dims = ("station")
-            must_be_sorted_along = None
-        elif is_tsp:
-            z_dims = ("station", "ntime", "nz")
-            must_be_sorted_along = "nz"
-        elif is_traj:
-            z_dims = ("traj", "ntime")
-            must_be_sorted_along = None
-        else:
-            raise Exception("unexpected featureType.")
-
-        result["z"]["variable"].add(
-            self.check_var("z", True, allowed_types=[int, float], dims=z_dims,
-                           must_be_sorted_along=must_be_sorted_along,
-                           fill_allowed=not is_grid))
-        if result["z"]["variable"]:
-            result["z"]["long_name"].add(
-                self.check_var_attr("z", "long_name", True, allowed_types=str, allowed_values="height above origin"))
-            result["z"]["axis"].add(self.check_var_attr("z", "axis", True, allowed_types=str, allowed_values="Z"))
-            result["z"]["positive"].add(
-                self.check_var_attr("z", "positive", True, allowed_types=str, allowed_values="up"))
-            # Bounds will be checked below with all other variables.
-            if result["z"]:
-                if result["origin_z"]:
-                    result["z"]["standard_name"].add(
-                        self.check_var_attr("z", "standard_name", self.attrs["origin_z"] == 0, allowed_types=str,
-                                            allowed_values="height_above_mean_sea_level",
-                                            must_not_exist=self.attrs["origin_z"] != 0))
-
-        if is_ts or is_tsp:
-            result["station_h"].add(self.check_var("station_h", True,
-                                                   allowed_types=[int, float],
-                                                   dims=("station")))
-
-        # x, y
-        result["x"].add(self.check_xy("x"))
-        result["y"].add(self.check_xy("y"))
-        result["lon"].add(self.check_xy("lon"))
-        result["lat"].add(self.check_xy("lat"))
-        result["E_UTM"].add(self.check_xy("E_UTM"))
-        result["N_UTM"].add(self.check_xy("N_UTM"))
-
-        if "s" in self.dims:
-            result["xs"].add(self.check_xy("xs"))
-            result["ys"].add(self.check_xy("ys"))
-            result["lons"].add(self.check_xy("lons"))
-            result["lats"].add(self.check_xy("lats"))
-            result["Es_UTM"].add(self.check_xy("Es_UTM"))
-            result["Ns_UTM"].add(self.check_xy("Ns_UTM"))
-
-        if is_grid:
-            # if one u is there, all are nedded
-            if any(elem in self for elem in ["xu", "Eu_UTM", "Nu_UTM", "lonu", "latu"]):
-                result["xu"].add(self.check_xy("xu"))
-                result["Eu_UTM"].add(self.check_xy("Eu_UTM"))
-                result["Nu_UTM"].add(self.check_xy("Nu_UTM"))
-                result["latu"].add(self.check_xy("latu"))
-                result["lonu"].add(self.check_xy("lonu"))
-            # if one v is there, all are nedded
-            if any(elem in self for elem in ["xv", "Ev_UTM", "Nv_UTM", "lonv", "latv"]):
-                result["yv"].add(self.check_xy("yv"))
-                result["Ev_UTM"].add(self.check_xy("Ev_UTM"))
-                result["Nv_UTM"].add(self.check_xy("Nv_UTM"))
-                result["lonv"].add(self.check_xy("lonv"))
-                result["latv"].add(self.check_xy("latv"))
-
-        # crs
-        result["crs"]["variable"].add(self.check_var("crs", True))
-        if result["crs"]:
-            result["crs"]["standard_name"].add(self.check_var_attr("crs", "standard_name", False, must_not_exist=True))
-            result["crs"]["long_name"].add(self.check_var_attr("crs", "long_name", True,
-                                                               allowed_values="coordinate reference system"))
-            result["crs"]["grid_mapping_name"].add(self.check_var_attr("crs", "grid_mapping_name", True,
-                                                                       allowed_values="transverse_mercator"))
-            result["crs"]["semi_major_axis"].add(self.check_var_attr("crs", "semi_major_axis", True,
-                                                                     allowed_values=6378137))
-            result["crs"]["inverse_flattening"].add(self.check_var_attr("crs", "inverse_flattening", True,
-                                                                        allowed_range=[298.2572, 298.2573]))
-            result["crs"]["longitude_of_prime_meridian"].add(self.check_var_attr("crs", "longitude_of_prime_meridian",
-                                                                                 True, allowed_values=0))
-            result["crs"]["longitude_of_central_meridian"].add(
-                self.check_var_attr("crs", "longitude_of_central_meridian",
-                                    True, allowed_values=[3, 9, 15]))
-            result["crs"]["scale_factor_at_central_meridian"].add(
-                self.check_var_attr("crs", "scale_factor_at_central_meridian",
-                                    True, allowed_range=[0.9995, 0.9997]))
-            result["crs"]["latitude_of_projection_origin"].add(
-                self.check_var_attr("crs", "latitude_of_projection_origin",
-                                    True, allowed_values=0))
-            result["crs"]["false_easting"].add(self.check_var_attr("crs", "false_easting", True, allowed_values=500000))
-            result["crs"]["false_northing"].add(self.check_var_attr("crs", "false_northing", True, allowed_values=0))
-            result["crs"]["units"].add(self.check_var_attr("crs", "units", True, allowed_values="m"))
-            result["crs"]["epsg_code"].add(self.check_var_attr("crs", "epsg_code", True,
-                                                               allowed_values=["EPSG:25831", "EPSG:25832",
-                                                                               "EPSG:25833"]))
-
-        #
-        # other (auxiliary) coordinate variables
-        #
-
-        check_platform = False
-        if is_ts or is_tsp:
-            check_platform = True
-            name = "station_name"
-            long_name = "station name"
-            dim = "station"
-            id = "timeseries_id"
-        elif is_traj:
-            check_platform = True
-            name = "traj_name"
-            long_name = "trajectory name"
-            dim = "traj"
-            id = "trajectory_id"
-
-        if check_platform:
-            result[name]["variable"].add(self.check_var(name, True, allowed_types=numpy.dtype("S1"),
-                                                        dims=(dim, "max_name_len")))
-            if result[name]["variable"]:
-                result[name]["long_name"].add(self.check_var_attr(name, "long_name", True, allowed_types=str,
-                                                                  allowed_values=long_name))
-                result[name]["standard_name"].add(self.check_var_attr(name, "standard_name", True, allowed_types=str,
-                                                                      allowed_values="platform_name"))
-                result[name]["cf_role"].add(self.check_var_attr(name, "cf_role", True, allowed_types=str,
-                                                                allowed_values=id))
-
-        if is_ts or is_tsp:
-            result["station_h"]["variable"].add(self.check_var("station_h", True,
-                                                               allowed_types=[int, float], dims="station",
-                                                               fill_allowed=False))
-            if result["station_h"]["variable"]:
-                result["station_h"]["long_name"].add(
-                    self.check_var_attr("station_h", "long_name", True, allowed_types=str,
-                                        allowed_values="surface altitude"))
-                result["station_h"]["standard_name"].add(
-                    self.check_var_attr("station_h", "standard_name", True, allowed_types=str,
-                                        allowed_values="surface_altitude"))
-                result["station_h"]["units"].add(self.check_var_attr("station_h", "units", True,
-                                                                     allowed_types=str,
-                                                                     allowed_values="m"))
-        if is_traj:
-            result["height"]["variable"].add(self.check_var("height", True,
-                                                            allowed_types=[int, float]))
-            if result["height"]["variable"]:
-                if self["height"].dims != () and self["height"].dims != ("traj", "ntime"):
-                    result["height"]["variable"].add(ResultCode.ERROR, "Variable 'height' must either be scalar " +
-                                                     "or have dimensions (traj, ntime).")
-            if result["height"]["variable"]:
-                result["height"]["long_name"].add(self.check_var_attr("height", "long_name", True,
-                                                                      allowed_types=str,
-                                                                      allowed_values="height above surface"))
-                result["height"]["standard_name"].add(self.check_var_attr("height", "standard_name", True,
-                                                                          allowed_types=str, allowed_values="height"))
-                result["height"]["units"].add(self.check_var_attr("height", "units", True, allowed_types=str,
-                                                                  allowed_values="m"))
-
-        ###
-        # Data variables
-        ###
-
-        dv = dict()
-        data_content_var_names = list()
-        dont_check = ["station_h", "crs", "vrs", "height"]
-        known_coordinates = ["station_name", "traj_name",
-                             "z", "zw", "zs",
-                             "x", "xu", "xs",
-                             "y", "yv", "ys",
-                             "lon", "lonu", "lonv", "lons",
-                             "lat", "latu", "latv", "lats",
-                             "E_UTM", "Eu_UTM", "Ev_UTM", "Es_UTM",
-                             "N_UTM", "Nu_UTM", "Nv_UTM", "Ns_UTM",
-                             "s",
-                             "time",
-                             "azimuth", "azimuths", "zenith", "zeniths"]
-        if is_ts:
-            data_dims = ("station", "ntime")
-        elif is_tsp:
-            data_dims = ("station", "ntime", "nz")
-        elif is_traj:
-            data_dims = ("traj", "ntime")
-        else:
-            if "ncol" in self.dims:  # pixel-based surfaces
-                data_dims = ("time", "nrow", "ncol")  # TODO: Wird es erlaubt werden, pixel ohne time abzulegen?
-            else:
-                data_dims = None
-
-        # get all coordinates that appear in this file
-        existing_coordinates = list()
-        for ikey in self.variables:
-            if (ikey in known_coordinates) or ikey.startswith("bands_"):
-                existing_coordinates.append(ikey)
-        existing_coordinates.sort()
-
-        for ikey in self.variables:
-            if ikey in dont_check:
-                continue
-            is_normal = ikey in self.allowed_variables.keys()
-            is_agg = ikey in [a + "_" + b for a in self.allowed_variables.keys() for b in
-                              self.allowed_aggregations.keys()]
-            is_bounds = ikey.endswith("_bounds")
-            is_bands = ikey.startswith("bands_")
-            is_ancillary = ikey.startswith("ancillary_")
-            is_coordinate = ikey in existing_coordinates
-
-            if not any([is_normal, is_agg, is_bands, is_bounds, is_bands, is_ancillary, is_coordinate]):
-                result[ikey].add(ResultCode.ERROR, "'" + ikey + "' is not a supported variable name.")
-                continue
-
-            if is_bands and not is_bounds:  # if is_bands and is_bounds: that would mean, e.g., "bands_xyz_bounds" which is actually only bounds
-                # Check bands (bands are coordinate variables => need dim of same name)
-                result[ikey].add(self.check_var(ikey, True, dims=ikey, fill_allowed=False, must_be_sorted_along=ikey))
-            elif is_bounds:
-
-                main_key = ikey[:-7]
-                if main_key not in self:
-                    result[ikey].add(ResultCode.ERROR,
-                                     "Variable '" + ikey + "' seems to be a bounds variable " \
-                                                           "but there is no main variable (expected '" + \
-                                     main_key + "')")
-                else:
-                    result[main_key].add(self.check_var_attr(main_key, "bounds", True,
-                                                             allowed_types=str, allowed_values=ikey))
-                    result[ikey].add(self.check_var(ikey, True, allowed_types=self[main_key].dtype,
-                                                    dims=self[main_key].dims + ("nv",)))
-                    if len(self[ikey].attrs) != 0:
-                        result[ikey]["attributes"].add(ResultCode.ERROR,
-                                                       "Variable '" + ikey + "' must not have any attributes.")
-                # Time must be end of time period
-                if ikey == "time_bounds":
-                    if not self[main_key].equals(self[ikey][..., 1]):
-                        result[ikey]["variable"].add(ResultCode.ERROR,
-                                                     "second column of 'time_bounds' must equal data of variable 'time'")
-                # z must be in middle of z bounds
-                if ikey == "z_bounds":
-                    z_bound_lower = self[ikey][..., 0]
-                    z_bound_upper = self[ikey][..., 1]
-                    z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
-                    if not numpy.allclose(self[main_key].values, z_bound_mid.values, equal_nan=True):
-                        result[ikey]["variable"].add(ResultCode.ERROR,
-                                                     "values of z must be in the middle between z_bounds.")
-
-
-            elif is_ancillary:
-                # Check ancillary
-                # This is an inner loop over all variables again, to find the one that references this ancillary variable.
-                for tmpKey in self.variables:
-                    if "ancillary_variables" in self[tmpKey].attrs.keys():
-                        if ikey in self[tmpKey].attrs["ancillary_variables"].split(" "):
-                            main_var = self[tmpKey]
-                            result[ikey].add(self.check_var(ikey, True, dims=main_var.dims))
-
-            elif is_coordinate:
-                pass
-            else:
-                if is_normal:
-                    expected_data_content = ikey
-                elif is_agg:
-                    expected_data_content = "_".join(ikey[0].split("_")[:-1])
-                else:
-                    raise Exception("Unexpected var type: " + ikey)
-
-                if expected_data_content not in data_content_var_names:
-                    data_content_var_names.append(expected_data_content)
-
-                # Check var
-                result[ikey]["variable"].add(self.check_var(ikey, True, dims=data_dims))
-
-                # Check obligatory attributes
-                result[ikey]["long_name"].add(self.check_var_attr(ikey, "long_name", True, allowed_types=str,
-                                                                  allowed_values=self.allowed_variables[ikey][
-                                                                      "long_name"]))
-                result[ikey]["units"].add(
-                    self.check_var_attr(ikey, "units", True, allowed_types=str))  # TODO: check conversion
-                result[ikey]["_FillValue"].add(
-                    self.check_var_attr(ikey, "_FillValue", True, allowed_types=self[ikey].dtype,
-                                        allowed_values=-9999))
-                result[ikey]["coordinates"].add(self.check_var_attr(ikey, "coordinates", True, allowed_types=str))
-                if result[ikey]["coordinates"]:
-                    this_coords = self[ikey].attrs["coordinates"].split(" ")
-                    this_coords.sort()
-                    if this_coords != existing_coordinates:
-                        result[ikey]["coordinates"].add(ResultCode.WARNING,
-                                                        "variable attribute 'coordinates' does not " +
-                                                        "contain all (auxiliary) coordinates. These are missing: " +
-                                                        str(set(existing_coordinates).difference(set(this_coords))))
-
-                result[ikey]["grid_mapping"].add(self.check_var_attr(ikey, "grid_mapping", True, allowed_types=str,
-                                                                     allowed_values="crs"))
-                # other attributes
-                result[ikey]["standard_name"].add(self.check_var_attr(ikey, "standard_name",
-                                                                      self.allowed_variables[ikey][
-                                                                          "standard_name"] != "",
-                                                                      allowed_types=str,
-                                                                      allowed_values=self.allowed_variables[ikey][
-                                                                          "standard_name"],
-                                                                      must_not_exist=self.allowed_variables[ikey][
-                                                                                         "standard_name"] == ""))
-                result[ikey]["units_alt"].add(
-                    self.check_var_attr(ikey, "units_alt", False, allowed_types=str))  # TODO: check conversion
-                result[ikey]["uncertainty_rel"].add(self.check_var_attr(ikey, "uncertainty_rel", False,
-                                                                        allowed_types=float))
-                result[ikey]["processing_level"].add(self.check_var_attr(ikey, "processing_level", False,
-                                                                         allowed_types=int, allowed_range=[0, 3]))
-                result[ikey]["processing_info"].add(self.check_var_attr(ikey, "processing_info", False,
-                                                                        allowed_types=str))
-                result[ikey]["instrument_name"].add(self.check_var_attr(ikey, "instrument_name", False,
-                                                                        allowed_types=str))
-                result[ikey]["instrument_nr"].add(self.check_var_attr(ikey, "instrument_nr", False,
-                                                                      allowed_types=str))
-                result[ikey]["instrument_sn"].add(self.check_var_attr(ikey, "instrument_sn", False,
-                                                                      allowed_types=str))
-
-                # Check cell_methods
-                if is_agg:
-                    result[ikey]["cell_methods"].add(self.check_var_attr(ikey, "cell_methods", True, allowed_types=str))
-                    if result[ikey]["cell_methods"]:
-                        this_agg_short = ikey.split("_")[1]
-                        this_agg_cf = self.allowed_aggregations[this_agg_short]
-                        if not re.match(r".*?\btime\b( )?:( )?"+re.escape(this_agg_cf)+r"\b", self[ikey].attrs["cell_methods"]):
-                            result[ikey]["cell_methods"].add(ResultCode.ERROR, "The variable name indicates a "+
-                                                             "temporal aggregation. This must be given by cell_methods: "+
-                                                             "'time: "+this_agg_cf+"'.")
-
-                # Check ancillary_variables attribute
-                if "ancillary_variables" in self[ikey].attrs.keys():
-                    anc_var = self[ikey].attrs["ancillary_variables"].split(" ")
-                    for i in anc_var:
-                        if i not in self.keys():
-                            result[ikey]["ancillary_variables"].add(ResultCode.ERROR,
-                                                                    "Expected ancillary variable '" +
-                                                                    i + "' not found in file.")
-                    result[ikey]["ancillary_variables"].add(self.check_var_attr(ikey, "ancillary_variables",
-                                                                                True, allowed_types=str))
-
-                # Check bounds attribute
-                if "bounds" in self[ikey].attrs.keys():
-                    if ikey + "_bounds" not in self.keys():
-                        result[ikey]["bounds"].add(ResultCode.ERROR,
-                                                   "Expected variable '" + ikey + "_bounds' not found.")
-                    result[ikey]["bounds"].add(self.check_var_attr(ikey, "bounds", True,
-                                                                   allowed_types=str,
-                                                                   allowed_values=ikey + "_bounds"))
-
-        if len(data_content_var_names) == 0:
-            result.add(ResultCode.ERROR, "No data variable found.")
-        elif len(data_content_var_names) == 1:
-            if result["data_content"]:
-                if self.attrs["data_content"] != data_content_var_names[0]:
-                    result["data_content"].add(ResultCode.ERROR, "Only one data variable found. '" +
-                                               data_content_var_names[
-                                                   0] + "'. Expected global attribute 'data_content'" +
-                                               " to be '" + data_content_var_names[0] + "'.")
-
-        # TODO: Check agg_method with cell_methods
         # TODO: If all variables have cell_methods with time:point then no time_bounds (and bounds attribute)
         # TODO: If all variables have cell_methods with z:point then no z_bounds (and bounds attribute)
 
@@ -638,35 +148,41 @@ class UC2Data(xarray.Dataset):
         ###
 
         if result["crs"]:
-            # Check if origin_lon/origin_lat matches origin_x/origin_y
-            if all([result["origin_lon"], result["origin_lat"], result["origin_x"], result["origin_y"]]):
-                lon_orig = self.attrs["origin_lon"]
-                lat_orig = self.attrs["origin_lat"]
-                e_orig_ll, n_orig_ll = self.geo2UTM(lon_orig, lat_orig)
-
-                result["origin_coords_match"].add(
-                    compare_UTMs(e_orig_ll, n_orig_ll, self.attrs["origin_x"], self.attrs["origin_y"]))
-
-            # Check if lon/lat matches E_UTM/N_UTM
-            if all(elem in self.keys() for elem in ["lon", "lat", "E_UTM", "N_UTM"]):
-                if all([result["lon"], result["lat"], result["E_UTM"], result["N_UTM"]]):
-                    result["lon_lat_E_UTM_N_UTM"].add(self.check_geo_vars("lon", "lat", "E_UTM", "N_UTM"))
-            if all(elem in self.keys() for elem in ["lonu", "latu", "Eu_UTM", "Nu_UTM"]):
-                if all([result["lonu"], result["latu"], result["Eu_UTM"], result["Nu_UTM"]]):
-                    result["lonu_latu_Eu_UTM_Nu_UTM"].add(self.check_geo_vars("lonu", "latu", "Eu_UTM", "Nu_UTM"))
-            if all(elem in self.keys() for elem in ["lonv", "latv", "Ev_UTM", "Nv_UTM"]):
-                if all([result["lonv"], result["latv"], result["Ev_UTM"], result["Nv_UTM"]]):
-                    result["lonv_latv_Ev_UTM_Nv_UTM"].add(self.check_geo_vars("lonv", "latv", "Ev_UTM", "Nv_UTM"))
-            if all(elem in self.keys() for elem in ["lons", "lats", "Es_UTM", "Ns_UTM"]):
-                if all([result["lons"], result["lats"], result["Es_UTM"], result["Ns_UTM"]]):
-                    result["lons_lats_Es_UTM_Ns_UTM"].add(self.check_geo_vars("lons", "lats", "Es_UTM", "Ns_UTM"))
-
-
+            result.add(self.check_coordinates())
         else:
             result["coordinate_transform"].add(ResultCode.ERROR, "Cannot check geographic coordinates " +
                                                "because of error in 'crs' variable.")
 
         self.check_result = result
+
+    def check_coordinates(self):
+
+        result = CheckResult()
+
+        # Check if origin_lon/origin_lat matches origin_x/origin_y
+        if all([result["origin_lon"], result["origin_lat"], result["origin_x"], result["origin_y"]]):
+            lon_orig = self.attrs["origin_lon"]
+            lat_orig = self.attrs["origin_lat"]
+            e_orig_ll, n_orig_ll = self.geo2UTM(lon_orig, lat_orig)
+
+            result["origin_coords_match"].add(
+                compare_UTMs(e_orig_ll, n_orig_ll, self.attrs["origin_x"], self.attrs["origin_y"]))
+
+        # Check if lon/lat matches E_UTM/N_UTM
+        if all(elem in self.keys() for elem in ["lon", "lat", "E_UTM", "N_UTM"]):
+            if all([result["lon"], result["lat"], result["E_UTM"], result["N_UTM"]]):
+                result["lon_lat_E_UTM_N_UTM"].add(self.check_geo_vars("lon", "lat", "E_UTM", "N_UTM"))
+        if all(elem in self.keys() for elem in ["lonu", "latu", "Eu_UTM", "Nu_UTM"]):
+            if all([result["lonu"], result["latu"], result["Eu_UTM"], result["Nu_UTM"]]):
+                result["lonu_latu_Eu_UTM_Nu_UTM"].add(self.check_geo_vars("lonu", "latu", "Eu_UTM", "Nu_UTM"))
+        if all(elem in self.keys() for elem in ["lonv", "latv", "Ev_UTM", "Nv_UTM"]):
+            if all([result["lonv"], result["latv"], result["Ev_UTM"], result["Nv_UTM"]]):
+                result["lonv_latv_Ev_UTM_Nv_UTM"].add(self.check_geo_vars("lonv", "latv", "Ev_UTM", "Nv_UTM"))
+        if all(elem in self.keys() for elem in ["lons", "lats", "Es_UTM", "Ns_UTM"]):
+            if all([result["lons"], result["lats"], result["Es_UTM"], result["Ns_UTM"]]):
+                result["lons_lats_Es_UTM_Ns_UTM"].add(self.check_geo_vars("lons", "lats", "Es_UTM", "Ns_UTM"))
+
+        return result
 
     def check_geo_vars(self, lon_name, lat_name, eutm_name, nutm_name):
 
@@ -706,7 +222,7 @@ class UC2Data(xarray.Dataset):
             sort_along = None
             fill_allowed = False
         elif xy in ["x", "y", "lon", "lat", "E_UTM", "N_UTM"]:
-            if self.featuretype == "None":
+            if self.is_grid:
                 if "ncol" in self.dims:  # pixel-based surfaces
                     dims = ("nrow", "ncol")
                     sort_along = None
@@ -721,11 +237,11 @@ class UC2Data(xarray.Dataset):
                         dims = "x" if xy == "E_UTM" else "y"
                         sort_along = dims
                     fill_allowed = False
-            elif self.featuretype in ["timeSeries", "timeSeriesProfile"]:
+            elif self.is_ts or self.is_tsp:
                 dims = "station"
                 sort_along = None
                 fill_allowed = True
-            elif self.featuretype == "trajectory":
+            elif self.is_traj:
                 dims = ("traj", "ntime")
                 sort_along = None
                 fill_allowed = True
@@ -956,6 +472,515 @@ class UC2Data(xarray.Dataset):
 
         return result
 
+    def check_all_vars(self):
+
+        result = CheckResult()
+
+        # vrs
+
+        result["vrs"]["variable"].add(self.check_var("vrs", True, dims=()))
+        if result["vrs"]["variable"]:
+            result["vrs"]["long_name"].add(self.check_var_attr("vrs", "long_name", True, allowed_types=str,
+                                                               allowed_values="vertical reference system"))
+            result["vrs"]["system_name"].add(
+                self.check_var_attr("vrs", "system_name", True, allowed_types=str, allowed_values="DHHN2016"))
+            result["vrs"]["standard_name"].add(self.check_var_attr("vrs", "standard_name", False, must_not_exist=True))
+
+        # time
+
+        allowed_range = None
+        if self.is_ts or self.is_tsp:
+            time_dims = ("station", "ntime")
+            time_dim_name = "ntime"
+        elif self.is_traj:
+            time_dims = ("traj", "ntime")
+            time_dim_name = "ntime"
+        else:
+            if "ncol" in self.dims:  # pixel-based surfaces
+                pass  # TODO: Wird es erlaubt, pixel ohne time anzulegen?
+            else:
+                time_dims = ("time")
+                time_dim_name = "time"
+
+        if self.is_iop:
+            allowed_range = [.01, 86400]
+        elif self.is_lto:
+            if result["origin_time"]:
+                ndays = calendar.monthrange(int(self.attrs["origin_time"][0:4]), int(self.attrs["origin_time"][5:7]))[1]
+                allowed_range = [.01, ndays * 24 * 60 * 60]
+
+        result["time"]["variable"].add(
+            self.check_var("time", True, allowed_types=[int, float],
+                           allowed_range=allowed_range, dims=time_dims,
+                           must_be_sorted_along=time_dim_name,
+                           decrease_sort_allowed=False,
+                           fill_allowed=not self.is_grid))
+        if result["time"]["variable"]:
+            # bounds are checked below together with other variables.
+            result["time"]["long_name"].add(
+                self.check_var_attr("time", "long_name", True, allowed_types=str, allowed_values="time"))
+            result["time"]["standard_name"].add(self.check_var_attr("time", "standard_name", True, allowed_types=str,
+                                                                    allowed_values="time"))
+            result["time"]["calendar"].add(self.check_var_attr("time", "calendar", True, allowed_types=str,
+                                                               allowed_values="proleptic_gregorian"))
+            result["time"]["axis"].add(self.check_var_attr("time", "axis", True, allowed_types=str, allowed_values="T"))
+            result["time"]["fill_values"].add(
+                self.check_var_attr("time", "_FillValue", False, allowed_types=self["time"].dtype,
+                                    must_not_exist=self.is_grid))
+            result["time"]["units"].add(self.check_var_attr("time", "units", True, allowed_types=str,
+                                                            regex="seconds since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
+            if result["origin_time"] and result["time"]["units"]:
+                if self.attrs["origin_time"] != self["time"].units[14:]:
+                    result["time"]["origin_time"].add(ResultCode.ERROR,
+                                                      "Global attribute 'origin_time' does not match units of variable 'time'.")
+
+        # z
+
+        if self.is_grid:
+            z_dims = ("z")
+            must_be_sorted_along = "z"
+        elif self.is_ts:
+            z_dims = ("station")
+            must_be_sorted_along = None
+        elif self.is_tsp:
+            z_dims = ("station", "ntime", "nz")
+            must_be_sorted_along = "nz"
+        elif self.is_traj:
+            z_dims = ("traj", "ntime")
+            must_be_sorted_along = None
+        else:
+            raise Exception("unexpected featureType.")
+
+        result["z"]["variable"].add(
+            self.check_var("z", True, allowed_types=[int, float], dims=z_dims,
+                           must_be_sorted_along=must_be_sorted_along,
+                           fill_allowed=not self.is_grid))
+        if result["z"]["variable"]:
+            result["z"]["long_name"].add(
+                self.check_var_attr("z", "long_name", True, allowed_types=str, allowed_values="height above origin"))
+            result["z"]["axis"].add(self.check_var_attr("z", "axis", True, allowed_types=str, allowed_values="Z"))
+            result["z"]["positive"].add(
+                self.check_var_attr("z", "positive", True, allowed_types=str, allowed_values="up"))
+            # Bounds will be checked below with all other variables.
+            if result["z"]:
+                if result["origin_z"]:
+                    result["z"]["standard_name"].add(
+                        self.check_var_attr("z", "standard_name", self.attrs["origin_z"] == 0, allowed_types=str,
+                                            allowed_values="height_above_mean_sea_level",
+                                            must_not_exist=self.attrs["origin_z"] != 0))
+
+        if self.is_ts or self.is_tsp:
+            result["station_h"].add(self.check_var("station_h", True,
+                                                   allowed_types=[int, float],
+                                                   dims=("station")))
+
+        # x, y
+        result["x"].add(self.check_xy("x"))
+        result["y"].add(self.check_xy("y"))
+        result["lon"].add(self.check_xy("lon"))
+        result["lat"].add(self.check_xy("lat"))
+        result["E_UTM"].add(self.check_xy("E_UTM"))
+        result["N_UTM"].add(self.check_xy("N_UTM"))
+
+        if "s" in self.dims:
+            result["xs"].add(self.check_xy("xs"))
+            result["ys"].add(self.check_xy("ys"))
+            result["lons"].add(self.check_xy("lons"))
+            result["lats"].add(self.check_xy("lats"))
+            result["Es_UTM"].add(self.check_xy("Es_UTM"))
+            result["Ns_UTM"].add(self.check_xy("Ns_UTM"))
+
+        if self.is_grid:
+            # if one u is there, all are nedded
+            if any(elem in self for elem in ["xu", "Eu_UTM", "Nu_UTM", "lonu", "latu"]):
+                result["xu"].add(self.check_xy("xu"))
+                result["Eu_UTM"].add(self.check_xy("Eu_UTM"))
+                result["Nu_UTM"].add(self.check_xy("Nu_UTM"))
+                result["latu"].add(self.check_xy("latu"))
+                result["lonu"].add(self.check_xy("lonu"))
+            # if one v is there, all are nedded
+            if any(elem in self for elem in ["xv", "Ev_UTM", "Nv_UTM", "lonv", "latv"]):
+                result["yv"].add(self.check_xy("yv"))
+                result["Ev_UTM"].add(self.check_xy("Ev_UTM"))
+                result["Nv_UTM"].add(self.check_xy("Nv_UTM"))
+                result["lonv"].add(self.check_xy("lonv"))
+                result["latv"].add(self.check_xy("latv"))
+
+        # crs
+        result["crs"]["variable"].add(self.check_var("crs", True))
+        if result["crs"]:
+            result["crs"]["standard_name"].add(self.check_var_attr("crs", "standard_name", False, must_not_exist=True))
+            result["crs"]["long_name"].add(self.check_var_attr("crs", "long_name", True,
+                                                               allowed_values="coordinate reference system"))
+            result["crs"]["grid_mapping_name"].add(self.check_var_attr("crs", "grid_mapping_name", True,
+                                                                       allowed_values="transverse_mercator"))
+            result["crs"]["semi_major_axis"].add(self.check_var_attr("crs", "semi_major_axis", True,
+                                                                     allowed_values=6378137))
+            result["crs"]["inverse_flattening"].add(self.check_var_attr("crs", "inverse_flattening", True,
+                                                                        allowed_range=[298.2572, 298.2573]))
+            result["crs"]["longitude_of_prime_meridian"].add(self.check_var_attr("crs", "longitude_of_prime_meridian",
+                                                                                 True, allowed_values=0))
+            result["crs"]["longitude_of_central_meridian"].add(
+                self.check_var_attr("crs", "longitude_of_central_meridian",
+                                    True, allowed_values=[3, 9, 15]))
+            result["crs"]["scale_factor_at_central_meridian"].add(
+                self.check_var_attr("crs", "scale_factor_at_central_meridian",
+                                    True, allowed_range=[0.9995, 0.9997]))
+            result["crs"]["latitude_of_projection_origin"].add(
+                self.check_var_attr("crs", "latitude_of_projection_origin",
+                                    True, allowed_values=0))
+            result["crs"]["false_easting"].add(self.check_var_attr("crs", "false_easting", True, allowed_values=500000))
+            result["crs"]["false_northing"].add(self.check_var_attr("crs", "false_northing", True, allowed_values=0))
+            result["crs"]["units"].add(self.check_var_attr("crs", "units", True, allowed_values="m"))
+            result["crs"]["epsg_code"].add(self.check_var_attr("crs", "epsg_code", True,
+                                                               allowed_values=["EPSG:25831", "EPSG:25832",
+                                                                               "EPSG:25833"]))
+
+        #
+        # other (auxiliary) coordinate variables
+        #
+
+        check_platform = False
+        if self.is_ts or self.is_tsp:
+            check_platform = True
+            name = "station_name"
+            long_name = "station name"
+            dim = "station"
+            id = "timeseries_id"
+        elif self.is_traj:
+            check_platform = True
+            name = "traj_name"
+            long_name = "trajectory name"
+            dim = "traj"
+            id = "trajectory_id"
+
+        if check_platform:
+            result[name]["variable"].add(self.check_var(name, True, allowed_types=numpy.dtype("S1"),
+                                                        dims=(dim, "max_name_len")))
+            if result[name]["variable"]:
+                result[name]["long_name"].add(self.check_var_attr(name, "long_name", True, allowed_types=str,
+                                                                  allowed_values=long_name))
+                result[name]["standard_name"].add(self.check_var_attr(name, "standard_name", True, allowed_types=str,
+                                                                      allowed_values="platform_name"))
+                result[name]["cf_role"].add(self.check_var_attr(name, "cf_role", True, allowed_types=str,
+                                                                allowed_values=id))
+
+        if self.is_ts or self.is_tsp:
+            result["station_h"]["variable"].add(self.check_var("station_h", True,
+                                                               allowed_types=[int, float], dims="station",
+                                                               fill_allowed=False))
+            if result["station_h"]["variable"]:
+                result["station_h"]["long_name"].add(
+                    self.check_var_attr("station_h", "long_name", True, allowed_types=str,
+                                        allowed_values="surface altitude"))
+                result["station_h"]["standard_name"].add(
+                    self.check_var_attr("station_h", "standard_name", True, allowed_types=str,
+                                        allowed_values="surface_altitude"))
+                result["station_h"]["units"].add(self.check_var_attr("station_h", "units", True,
+                                                                     allowed_types=str,
+                                                                     allowed_values="m"))
+        if self.is_traj:
+            result["height"]["variable"].add(self.check_var("height", True,
+                                                            allowed_types=[int, float]))
+            if result["height"]["variable"]:
+                if self["height"].dims != () and self["height"].dims != ("traj", "ntime"):
+                    result["height"]["variable"].add(ResultCode.ERROR, "Variable 'height' must either be scalar " +
+                                                     "or have dimensions (traj, ntime).")
+            if result["height"]["variable"]:
+                result["height"]["long_name"].add(self.check_var_attr("height", "long_name", True,
+                                                                      allowed_types=str,
+                                                                      allowed_values="height above surface"))
+                result["height"]["standard_name"].add(self.check_var_attr("height", "standard_name", True,
+                                                                          allowed_types=str, allowed_values="height"))
+                result["height"]["units"].add(self.check_var_attr("height", "units", True, allowed_types=str,
+                                                                  allowed_values="m"))
+
+        ###
+        # Data variables
+        ###
+
+        dv = dict()
+        data_content_var_names = list()
+        dont_check = ["station_h", "crs", "vrs", "height"]
+        known_coordinates = ["station_name", "traj_name",
+                             "z", "zw", "zs",
+                             "x", "xu", "xs",
+                             "y", "yv", "ys",
+                             "lon", "lonu", "lonv", "lons",
+                             "lat", "latu", "latv", "lats",
+                             "E_UTM", "Eu_UTM", "Ev_UTM", "Es_UTM",
+                             "N_UTM", "Nu_UTM", "Nv_UTM", "Ns_UTM",
+                             "s",
+                             "time",
+                             "azimuth", "azimuths", "zenith", "zeniths"]
+        if self.is_ts:
+            data_dims = ("station", "ntime")
+        elif self.is_tsp:
+            data_dims = ("station", "ntime", "nz")
+        elif self.is_traj:
+            data_dims = ("traj", "ntime")
+        else:
+            if "ncol" in self.dims:  # pixel-based surfaces
+                data_dims = ("time", "nrow", "ncol")  # TODO: Wird es erlaubt werden, pixel ohne time abzulegen?
+            else:
+                data_dims = None
+
+        # get all coordinates that appear in this file
+        existing_coordinates = list()
+        for ikey in self.variables:
+            if (ikey in known_coordinates) or ikey.startswith("bands_"):
+                existing_coordinates.append(ikey)
+        existing_coordinates.sort()
+
+        for ikey in self.variables:
+            if ikey in dont_check:
+                continue
+            is_normal = ikey in self.allowed_variables.keys()
+            is_agg = ikey in [a + "_" + b for a in self.allowed_variables.keys() for b in
+                              self.allowed_aggregations.keys()]
+            is_bounds = ikey.endswith("_bounds")
+            is_bands = ikey.startswith("bands_")
+            is_ancillary = ikey.startswith("ancillary_")
+            is_coordinate = ikey in existing_coordinates
+
+            if not any([is_normal, is_agg, is_bands, is_bounds, is_bands, is_ancillary, is_coordinate]):
+                result[ikey].add(ResultCode.ERROR, "'" + ikey + "' is not a supported variable name.")
+                continue
+
+            if is_bands and not is_bounds:  # if is_bands and is_bounds: that would mean, e.g., "bands_xyz_bounds" which is actually only bounds
+                # Check bands (bands are coordinate variables => need dim of same name)
+                result[ikey].add(self.check_var(ikey, True, dims=ikey, fill_allowed=False, must_be_sorted_along=ikey))
+            elif is_bounds:
+
+                main_key = ikey[:-7]
+                if main_key not in self:
+                    result[ikey].add(ResultCode.ERROR,
+                                     "Variable '" + ikey + "' seems to be a bounds variable " \
+                                                           "but there is no main variable (expected '" + \
+                                     main_key + "')")
+                else:
+                    result[main_key].add(self.check_var_attr(main_key, "bounds", True,
+                                                             allowed_types=str, allowed_values=ikey))
+                    result[ikey].add(self.check_var(ikey, True, allowed_types=self[main_key].dtype,
+                                                    dims=self[main_key].dims + ("nv",)))
+                    if len(self[ikey].attrs) != 0:
+                        result[ikey]["attributes"].add(ResultCode.ERROR,
+                                                       "Variable '" + ikey + "' must not have any attributes.")
+                # Time must be end of time period
+                if ikey == "time_bounds":
+                    if not self[main_key].equals(self[ikey][..., 1]):
+                        result[ikey]["variable"].add(ResultCode.ERROR,
+                                                     "second column of 'time_bounds' must equal data of variable 'time'")
+                # z must be in middle of z bounds
+                if ikey == "z_bounds":
+                    z_bound_lower = self[ikey][..., 0]
+                    z_bound_upper = self[ikey][..., 1]
+                    z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
+                    if not numpy.allclose(self[main_key].values, z_bound_mid.values, equal_nan=True):
+                        result[ikey]["variable"].add(ResultCode.ERROR,
+                                                     "values of z must be in the middle between z_bounds.")
+
+
+            elif is_ancillary:
+                # Check ancillary
+                # This is an inner loop over all variables again, to find the one that references this ancillary variable.
+                for tmpKey in self.variables:
+                    if "ancillary_variables" in self[tmpKey].attrs.keys():
+                        if ikey in self[tmpKey].attrs["ancillary_variables"].split(" "):
+                            main_var = self[tmpKey]
+                            result[ikey].add(self.check_var(ikey, True, dims=main_var.dims))
+
+            elif is_coordinate:
+                pass
+            else:
+                if is_normal:
+                    expected_data_content = ikey
+                elif is_agg:
+                    expected_data_content = "_".join(ikey[0].split("_")[:-1])
+                else:
+                    raise Exception("Unexpected var type: " + ikey)
+
+                if expected_data_content not in data_content_var_names:
+                    data_content_var_names.append(expected_data_content)
+
+                # Check var
+                result[ikey]["variable"].add(self.check_var(ikey, True, dims=data_dims))
+
+                # Check obligatory attributes
+                result[ikey]["long_name"].add(self.check_var_attr(ikey, "long_name", True, allowed_types=str,
+                                                                  allowed_values=self.allowed_variables[ikey][
+                                                                      "long_name"]))
+                result[ikey]["units"].add(
+                    self.check_var_attr(ikey, "units", True, allowed_types=str))  # TODO: check conversion
+                result[ikey]["_FillValue"].add(
+                    self.check_var_attr(ikey, "_FillValue", True, allowed_types=self[ikey].dtype,
+                                        allowed_values=-9999))
+                result[ikey]["coordinates"].add(self.check_var_attr(ikey, "coordinates", True, allowed_types=str))
+                if result[ikey]["coordinates"]:
+                    this_coords = self[ikey].attrs["coordinates"].split(" ")
+                    this_coords.sort()
+                    if this_coords != existing_coordinates:
+                        result[ikey]["coordinates"].add(ResultCode.WARNING,
+                                                        "variable attribute 'coordinates' does not " +
+                                                        "contain all (auxiliary) coordinates. These are missing: " +
+                                                        str(set(existing_coordinates).difference(set(this_coords))))
+
+                result[ikey]["grid_mapping"].add(self.check_var_attr(ikey, "grid_mapping", True, allowed_types=str,
+                                                                     allowed_values="crs"))
+                # other attributes
+                result[ikey]["standard_name"].add(self.check_var_attr(ikey, "standard_name",
+                                                                      self.allowed_variables[ikey][
+                                                                          "standard_name"] != "",
+                                                                      allowed_types=str,
+                                                                      allowed_values=self.allowed_variables[ikey][
+                                                                          "standard_name"],
+                                                                      must_not_exist=self.allowed_variables[ikey][
+                                                                                         "standard_name"] == ""))
+                result[ikey]["units_alt"].add(
+                    self.check_var_attr(ikey, "units_alt", False, allowed_types=str))  # TODO: check conversion
+                result[ikey]["uncertainty_rel"].add(self.check_var_attr(ikey, "uncertainty_rel", False,
+                                                                        allowed_types=float))
+                result[ikey]["processing_level"].add(self.check_var_attr(ikey, "processing_level", False,
+                                                                         allowed_types=int, allowed_range=[0, 3]))
+                result[ikey]["processing_info"].add(self.check_var_attr(ikey, "processing_info", False,
+                                                                        allowed_types=str))
+                result[ikey]["instrument_name"].add(self.check_var_attr(ikey, "instrument_name", False,
+                                                                        allowed_types=str))
+                result[ikey]["instrument_nr"].add(self.check_var_attr(ikey, "instrument_nr", False,
+                                                                      allowed_types=str))
+                result[ikey]["instrument_sn"].add(self.check_var_attr(ikey, "instrument_sn", False,
+                                                                      allowed_types=str))
+
+                # Check cell_methods
+                if is_agg:
+                    result[ikey]["cell_methods"].add(self.check_var_attr(ikey, "cell_methods", True, allowed_types=str))
+                    if result[ikey]["cell_methods"]:
+                        this_agg_short = ikey.split("_")[1]
+                        this_agg_cf = self.allowed_aggregations[this_agg_short]
+                        if not re.match(r".*?\btime\b( )?:( )?"+re.escape(this_agg_cf)+r"\b", self[ikey].attrs["cell_methods"]):
+                            result[ikey]["cell_methods"].add(ResultCode.ERROR, "The variable name indicates a "+
+                                                             "temporal aggregation. This must be given by cell_methods: "+
+                                                             "'time: "+this_agg_cf+"'.")
+
+                # Check ancillary_variables attribute
+                if "ancillary_variables" in self[ikey].attrs.keys():
+                    anc_var = self[ikey].attrs["ancillary_variables"].split(" ")
+                    for i in anc_var:
+                        if i not in self.keys():
+                            result[ikey]["ancillary_variables"].add(ResultCode.ERROR,
+                                                                    "Expected ancillary variable '" +
+                                                                    i + "' not found in file.")
+                    result[ikey]["ancillary_variables"].add(self.check_var_attr(ikey, "ancillary_variables",
+                                                                                True, allowed_types=str))
+
+                # Check bounds attribute
+                if "bounds" in self[ikey].attrs.keys():
+                    if ikey + "_bounds" not in self.keys():
+                        result[ikey]["bounds"].add(ResultCode.ERROR,
+                                                   "Expected variable '" + ikey + "_bounds' not found.")
+                    result[ikey]["bounds"].add(self.check_var_attr(ikey, "bounds", True,
+                                                                   allowed_types=str,
+                                                                   allowed_values=ikey + "_bounds"))
+
+        if len(data_content_var_names) == 0:
+            result.add(ResultCode.ERROR, "No data variable found.")
+        elif len(data_content_var_names) == 1:
+            if result["data_content"]:
+                if self.attrs["data_content"] != data_content_var_names[0]:
+                    result["data_content"].add(ResultCode.ERROR, "Only one data variable found. '" +
+                                               data_content_var_names[
+                                                   0] + "'. Expected global attribute 'data_content'" +
+                                               " to be '" + data_content_var_names[0] + "'.")
+        return result
+
+    def check_all_glob_attr(self):
+        result = CheckResult()
+        result["title"].add(self.check_glob_attr("title", True, str))
+        result["data_content"].add(self.check_glob_attr("data_content", True, str,
+                                                        allowed_values=UC2Data.allowed_data_contents,
+                                                        max_strlen=16))
+        result["source"].add(self.check_glob_attr("source", True, str))
+        result["version"].add(self.check_glob_attr("version", True,
+                                                   int,
+                                                   allowed_values=list(
+                                                       range(1, 1000))))  # TODO: This is going to be checked in DMS
+        result["Conventions"].add(self.check_glob_attr("Conventions", True, str, allowed_values=["CF-1.7"]))
+        result["dependencies"].add(self.check_glob_attr("dependencies", True,
+                                                        str))  # TODO: This is going to be checked by DMS
+        result["history"].add(self.check_glob_attr("history", True, str))
+        result["references"].add(self.check_glob_attr("references", True, str))
+        result["comment"].add(self.check_glob_attr("comment", True, str))
+        result["keywords"].add(self.check_glob_attr("keywords", True, str))
+        result["licence"].add(self.check_glob_attr("licence", True, str, allowed_values=UC2Data.allowed_licences))
+        result["creation_time"].add(self.check_glob_attr("creation_time", True, str,
+                                                         regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
+        result["origin_time"].add(self.check_glob_attr("origin_time", True, str,
+                                                       regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
+        result["origin_lon"].add(self.check_glob_attr("origin_lon", True, float,
+                                                      allowed_range=[-180, 180]))
+        result["origin_lat"].add(self.check_glob_attr("origin_lat", True, float,
+                                                      allowed_range=[-90, 90]))
+        result["origin_x"].add(self.check_glob_attr("origin_x", True, float))
+        result["origin_y"].add(self.check_glob_attr("origin_y", True, float))
+        result["rotation_angle"].add(self.check_glob_attr("rotation_angle", True,
+                                                          float,
+                                                          allowed_range=[0, 360]))
+
+        # non-standard checks
+
+        if not self.is_grid:
+            result["featureType"].add(self.check_glob_attr("featureType", False, str,
+                                                           allowed_values=self.allowed_featuretypes))
+            if not result["featureType"]:
+                return result
+
+        result["origin_z"].add(self.check_glob_attr("origin_z", True, float,
+                                                    allowed_values=0 if (not self.is_grid) else None))
+        result["location"].add(self.check_glob_attr("location", True, str, allowed_values=UC2Data.allowed_locations))
+        result["site"].add(self.check_glob_attr("site", True, str, allowed_values=UC2Data.allowed_sites,
+                                                max_strlen=12))
+        if result["location"] and result["site"]:
+            if UC2Data.allowed_locations[UC2Data.allowed_sites.index(self.attrs["site"])] != self.attrs["location"]:
+                result["site"].add(ResultCode.ERROR, "site '" + self.attrs[
+                    "site"] + "' does not match location '" + self.attrs["location"] + "'")
+                result["location"].add(ResultCode.ERROR, "site '" + self.attrs[
+                    "site"] + "' does not match location '" + self.attrs["location"] + "'")
+
+        result["institution"].add(
+            self.check_glob_attr("institution", True, str, allowed_values=UC2Data.allowed_institutions))
+        result["acronym"].add(self.check_glob_attr("acronym", True, str, allowed_values=UC2Data.allowed_acronyms,
+                                                   max_strlen=12))
+        if result["institution"] and result["acronym"]:
+            if UC2Data.allowed_institutions.index(self.attrs["institution"]) != UC2Data.allowed_acronyms.index(
+                    self.attrs["acronym"]):
+                result["institution"].add(ResultCode.ERROR, "institution '" + self.attrs[
+                    "institution"] + "' does not match acronym '" + self.attrs["acronym"] + "'")
+                result["acronym"].add(ResultCode.ERROR, "institution '" + self.attrs[
+                    "institution"] + "' does not match acronym '" + self.attrs["acronym"] + "'")
+
+        result["author"].add(self.check_glob_attr("author", True, str))
+        if result["author"]:
+            if self.attrs["author"] != "":
+                result["author"].add(check_person_field(self.attrs["author"], "author"))
+
+        result["contact_person"].add(self.check_glob_attr("contact_person", True, str))
+        if result["contact_person"]:
+            result["contact_person"].add(check_person_field(self.attrs["contact_person"], "contact_person"))
+
+        result["campaign"].add(self.check_glob_attr("campaign", True, str, regex="^[A-Za-z0-9\._-]+$",
+                                                    max_strlen=12))
+        if result["campaign"]:
+            if self.is_iop:
+                if (len(self.attrs["campaign"]) != 5) or (not int(self.attrs["campaign"][3:]) in range(1, 100)):
+                    result["campaign"].add(ResultCode.ERROR,
+                                           "Global attribute 'campaign': If IOP then string must be IOPxx")
+            elif self.attrs["campaign"][0:4] in ["VALR", "VALM"]:
+                if (len(self.attrs["campaign"]) != 6) or (not int(self.attrs["campaign"][4:]) in range(1, 100)):
+                    result["campaign"].add(ResultCode.ERROR,
+                                           "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx")
+
+        return result
+
     def get_filename(self):
         attrs = ["campaign", "location", "site", "acronym", "data_content", "origin_time", "version"]
         vals = list()
@@ -984,7 +1009,6 @@ class UC2Data(xarray.Dataset):
         geo = pyproj.CRS("epsg:4258")
 
         return pyproj.transform(geo, utm, y, x)
-
 
 def compare_UTMs(e1, n1, e2, n2):
     if not isinstance(e1, numpy.ndarray):
