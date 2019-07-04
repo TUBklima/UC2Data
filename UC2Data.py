@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import pyproj
 import xarray
 import numpy
@@ -811,7 +812,7 @@ class UC2Data(xarray.Dataset):
                 if is_normal:
                     expected_data_content = ikey
                 elif is_agg:
-                    expected_data_content = "_".join(ikey[0].split("_")[:-1])
+                    expected_data_content = "_".join(ikey.split("_")[:-1])
                 else:
                     raise Exception("Unexpected var type: " + ikey)
 
@@ -824,7 +825,7 @@ class UC2Data(xarray.Dataset):
                 # Check obligatory attributes
                 self.check_result[ikey]["long_name"].add(self.check_var_attr(ikey, "long_name", True, allowed_types=str,
                                                                              allowed_values=
-                                                                             self.allowed_variables[ikey][
+                                                                             self.allowed_variables[expected_data_content][
                                                                                  "long_name"]))
                 self.check_result[ikey]["units"].add(
                     self.check_var_attr(ikey, "units", True, allowed_types=str))  # TODO: check conversion
@@ -848,14 +849,14 @@ class UC2Data(xarray.Dataset):
                                         allowed_values="crs"))
                 # other attributes
                 self.check_result[ikey]["standard_name"].add(self.check_var_attr(ikey, "standard_name",
-                                                                                 self.allowed_variables[ikey][
+                                                                                 self.allowed_variables[expected_data_content][
                                                                                      "standard_name"] != "",
                                                                                  allowed_types=str,
                                                                                  allowed_values=
-                                                                                 self.allowed_variables[ikey][
+                                                                                 self.allowed_variables[expected_data_content][
                                                                                      "standard_name"],
                                                                                  must_not_exist=
-                                                                                 self.allowed_variables[ikey][
+                                                                                 self.allowed_variables[expected_data_content][
                                                                                      "standard_name"] == ""))
                 self.check_result[ikey]["units_alt"].add(
                     self.check_var_attr(ikey, "units_alt", False, allowed_types=str))  # TODO: check conversion
@@ -878,7 +879,7 @@ class UC2Data(xarray.Dataset):
                     self.check_result[ikey]["cell_methods"].add(
                         self.check_var_attr(ikey, "cell_methods", True, allowed_types=str))
                     if self.check_result[ikey]["cell_methods"]:
-                        this_agg_short = ikey.split("_")[1]
+                        this_agg_short = ikey.split("_")[-1]
                         this_agg_cf = self.allowed_aggregations[this_agg_short]
                         if not re.match(r".*?\btime\b( )?:( )?" + re.escape(this_agg_cf) + r"\b",
                                         self[ikey].attrs["cell_methods"]):
@@ -1209,3 +1210,13 @@ class CheckResult(OrderedDict):
                 out[k].add(v.errors())
 
         return out
+
+def check_all_DMS_files(folder):
+    bad_files = list()
+    for root, dirs, files in os.walk(folder):
+        for name in files:
+            data = UC2Data(os.path.join(root,name))
+            data.uc2_check()
+            if not data.check_result:
+                bad_files.append(os.path.join(root, name))
+    return bad_files
