@@ -588,6 +588,17 @@ class UC2Data(xarray.Dataset):
                 result[ikey]["instrument_sn"].add(self.check_var_attr(ikey, "instrument_sn", False,
                                                                       allowed_types=str))
 
+                # Check cell_methods
+                if is_agg:
+                    result[ikey]["cell_methods"].add(self.check_var_attr(ikey, "cell_methods", True, allowed_types=str))
+                    if result[ikey]["cell_methods"]:
+                        this_agg_short = ikey.split("_")[1]
+                        this_agg_cf = self.allowed_aggregations[this_agg_short]
+                        if not re.match(r".*?\btime\b( )?:( )?"+re.escape(this_agg_cf)+r"\b", self[ikey].attrs["cell_methods"]):
+                            result[ikey]["cell_methods"].add(ResultCode.ERROR, "The variable name indicates a "+
+                                                             "temporal aggregation. This must be given by cell_methods: "+
+                                                             "'time: "+this_agg_cf+"'.")
+
                 # Check ancillary_variables attribute
                 if "ancillary_variables" in self[ikey].attrs.keys():
                     anc_var = self[ikey].attrs["ancillary_variables"].split(" ")
@@ -637,7 +648,6 @@ class UC2Data(xarray.Dataset):
                     compare_UTMs(e_orig_ll, n_orig_ll, self.attrs["origin_x"], self.attrs["origin_y"]))
 
             # Check if lon/lat matches E_UTM/N_UTM
-            # check if variables are there before asking if result["var"]. Because bool(result["var"]) returns true if didn't exist before.
             if all(elem in self.keys() for elem in ["lon", "lat", "E_UTM", "N_UTM"]):
                 if all([result["lon"], result["lat"], result["E_UTM"], result["N_UTM"]]):
                     result["lon_lat_E_UTM_N_UTM"].add(self.check_geo_vars("lon", "lat", "E_UTM", "N_UTM"))
@@ -1051,9 +1061,10 @@ class CheckResult(OrderedDict):
             self[item] = CheckResult()
         return super().__getitem__(item)
 
-    def __bool__(self): # TODO: bool(result["bla"] returns True if "bla" doesnt exist in result. Therefore we cannot ask like this if a test was done and passed...
+    def __bool__(self):
         if len(self.result) == 0:
-            ok = True
+            # an empty thing is not True (otherwise you couldnt check for bool(result["var"]) if "var" is not in result
+            ok = len(self.keys()) != 0
         else:
             ok = all(i_ok for i_ok in self.result)
 
