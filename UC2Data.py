@@ -336,15 +336,17 @@ class UC2Data(xarray.Dataset):
 
         if must_be_sorted_along:
             if must_be_sorted_along in self[varname].dims:
-                sorted_arr = numpy.sort(self[varname], axis=self[varname].dims.index(must_be_sorted_along))
+                me = self[varname].values.copy()
+                me[numpy.where(me == -9999)] = numpy.max(me) + 1 # fill values must be in the end of array for coordinate variables (sort to end)
+                sorted_arr = numpy.sort(me, axis=self[varname].dims.index(must_be_sorted_along))
+
                 if decrease_sort_allowed:
-                    anti_sorted_arr = -numpy.sort(-self[varname], axis=self[varname].dims.index(must_be_sorted_along))
-                    if not (numpy.array_equal(self[varname], sorted_arr) or numpy.array_equal(self[varname],
-                                                                                              anti_sorted_arr)):
+                    anti_sorted_arr = -numpy.sort(-me, axis=self[varname].dims.index(must_be_sorted_along))
+                    if not (numpy.array_equal(me, sorted_arr) or numpy.array_equal(me, anti_sorted_arr)):
                         result.add(ResultCode.ERROR,
                                    "Variable '" + varname + "' must be sorted along dimension '" + must_be_sorted_along + "'")
                 else:
-                    if not numpy.array_equal(self[varname], sorted_arr):
+                    if not numpy.array_equal(me, sorted_arr):
                         result.add(ResultCode.ERROR,
                                    "Variable '" + varname + "' must be sorted along dimension '" + must_be_sorted_along + "'")
 
@@ -394,6 +396,7 @@ class UC2Data(xarray.Dataset):
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong type. Should be " +
                            "one of the following: " + str(allowed_types))
+                return result
 
         if allowed_values:
             if type(allowed_values) != list:
@@ -450,6 +453,11 @@ class UC2Data(xarray.Dataset):
             if not type(self.attrs[attrname]) in allowed_types:
                 result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong type. Should be " +
                            "one of the following: " + str(allowed_types))
+
+        if not numpy.isscalar(self.attrs[attrname]):
+            result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' must be scalar but is "+
+                       str(type(self.attrs[attrname])))
+            return result
 
         if allowed_values:
             if not self.attrs[attrname] in allowed_values:
@@ -520,6 +528,10 @@ class UC2Data(xarray.Dataset):
                            must_be_sorted_along=time_dim_name,
                            decrease_sort_allowed=False,
                            fill_allowed=not self.is_grid))
+        # TODO: check max dt in LTO is <= 30 min
+        if self.is_lto:
+            pass
+
         if self.check_result["time"]["variable"]:
             # bounds are checked below together with other variables.
             self.check_result["time"]["long_name"].add(
@@ -624,25 +636,32 @@ class UC2Data(xarray.Dataset):
             self.check_result["crs"]["grid_mapping_name"].add(self.check_var_attr("crs", "grid_mapping_name", True,
                                                                                   allowed_values="transverse_mercator"))
             self.check_result["crs"]["semi_major_axis"].add(self.check_var_attr("crs", "semi_major_axis", True,
+                                                                                allowed_types=[int,float],
                                                                                 allowed_values=6378137))
             self.check_result["crs"]["inverse_flattening"].add(self.check_var_attr("crs", "inverse_flattening", True,
+                                                                                   allowed_types=float,
                                                                                    allowed_range=[298.2572, 298.2573]))
             self.check_result["crs"]["longitude_of_prime_meridian"].add(
                 self.check_var_attr("crs", "longitude_of_prime_meridian",
-                                    True, allowed_values=0))
+                                    True,
+                                    allowed_types=[int, float],
+                                    allowed_values=0))
             self.check_result["crs"]["longitude_of_central_meridian"].add(
                 self.check_var_attr("crs", "longitude_of_central_meridian",
-                                    True, allowed_values=[3, 9, 15]))
+                                    True, allowed_types=[int, float],
+                                    allowed_values=[3, 9, 15]))
             self.check_result["crs"]["scale_factor_at_central_meridian"].add(
                 self.check_var_attr("crs", "scale_factor_at_central_meridian",
-                                    True, allowed_range=[0.9995, 0.9997]))
+                                    True, allowed_types=[int, float],
+                                    allowed_range=[0.9995, 0.9997]))
             self.check_result["crs"]["latitude_of_projection_origin"].add(
                 self.check_var_attr("crs", "latitude_of_projection_origin",
-                                    True, allowed_values=0))
+                                    True, allowed_types=[int, float],
+                                    allowed_values=0))
             self.check_result["crs"]["false_easting"].add(
-                self.check_var_attr("crs", "false_easting", True, allowed_values=500000))
+                self.check_var_attr("crs", "false_easting", True, allowed_values=500000, allowed_types=[int, float]))
             self.check_result["crs"]["false_northing"].add(
-                self.check_var_attr("crs", "false_northing", True, allowed_values=0))
+                self.check_var_attr("crs", "false_northing", True, allowed_values=0, allowed_types=[int, float]))
             self.check_result["crs"]["units"].add(self.check_var_attr("crs", "units", True, allowed_values="m"))
             self.check_result["crs"]["epsg_code"].add(self.check_var_attr("crs", "epsg_code", True,
                                                                           allowed_values=["EPSG:25831", "EPSG:25832",
