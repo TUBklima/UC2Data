@@ -4,6 +4,7 @@ import pyproj
 import xarray
 import numpy
 import sys
+import pathlib
 import enum
 import csv
 import re
@@ -79,6 +80,7 @@ class UC2Data(xarray.Dataset):
     ]
 
     def __init__(self, path):
+
         self.path = path
         self.featuretype = None
         self.filename = None
@@ -94,6 +96,7 @@ class UC2Data(xarray.Dataset):
         tmp = xarray.open_dataset(self.path, decode_cf=False, mask_and_scale=False)
         self.update(tmp, inplace=True)
         self.attrs = tmp.attrs
+        tmp.close()
 
     def uc2_check(self):
 
@@ -1231,11 +1234,17 @@ class CheckResult(OrderedDict):
         return out
 
 def check_all_DMS_files(folder):
-    bad_files = list()
+
+    all_files = list()
     for root, dirs, files in os.walk(folder):
         for name in files:
-            data = UC2Data(os.path.join(root,name))
+            this_file = pathlib.Path(root, name)
+            if not str(this_file).endswith(".nc"):
+                continue
+
+            data = UC2Data(this_file)
             data.uc2_check()
-            if not data.check_result:
-                bad_files.append(os.path.join(root, name))
-    return bad_files
+
+            with open(str(this_file) + ".res", "w") as outfile:
+                outfile.write(str(data.check_result.warnings()))
+                outfile.write(str(data.check_result.errors()))
