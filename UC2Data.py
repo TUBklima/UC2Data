@@ -123,7 +123,7 @@ class UC2Data(xarray.Dataset):
 
         self.check_all_glob_attr()
         if not self.check_result["featureType"]:
-            return # doesnt make sense to check file with unknown featureType
+            return  # doesnt make sense to check file with unknown featureType
 
         ###
         # Check dims
@@ -208,9 +208,21 @@ class UC2Data(xarray.Dataset):
         E_UTM = E_UTM.flatten()
         N_UTM = N_UTM.flatten()
 
-        eutm, nutm = self.geo2UTM(x, y)
+        # Check if fill values are at the same spot and remove them prior to comparison
+        xfill = x == -9999
+        yfill = y == -9999
+        E_UTMfill = E_UTM == -9999
+        N_UTMfill = N_UTM == -9999
+        if not numpy.array_equal(xfill, yfill) or \
+                not numpy.array_equal(xfill, E_UTMfill) or \
+                not numpy.array_equal(xfill, N_UTMfill):
+            return CheckResult(ResultCode.ERROR, "Coordinates have fill values at different indices: " +
+                               ", ".join([lon_name, lat_name, eutm_name, nutm_name]) +
+                               ". They should be parallel.")
 
-        return compare_UTMs(eutm, nutm, E_UTM, N_UTM)
+        eutm, nutm = self.geo2UTM(x[~xfill], y[~yfill])
+
+        return compare_UTMs(eutm, nutm, E_UTM[~E_UTMfill], N_UTM[~N_UTMfill])
 
     def check_xy(self, xy):
 
@@ -304,7 +316,7 @@ class UC2Data(xarray.Dataset):
             else:
                 return result
 
-        if allowed_types:
+        if allowed_types is not None:
             if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
                 allowed_types = [allowed_types]
 
@@ -324,12 +336,12 @@ class UC2Data(xarray.Dataset):
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong type. Should be " +
                            "one of the following: " + str(allowed_types))
 
-        if allowed_range:
+        if allowed_range is not None:
             if (self[varname].min() < allowed_range[0]) or (self[varname].max() > allowed_range[1]):
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "' is outside allowed range" + str(allowed_range))
 
-        if dims:
+        if dims is not None:
             if type(dims) == list:
                 dims = tuple(dims)
             elif type(dims) == str:
@@ -337,10 +349,11 @@ class UC2Data(xarray.Dataset):
             if self[varname].dims != dims:
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong dimensions. Expected: " + str(dims))
 
-        if must_be_sorted_along:
+        if must_be_sorted_along is not None:
             if must_be_sorted_along in self[varname].dims:
                 me = self[varname].values.copy()
-                me[numpy.where(me == -9999)] = numpy.max(me) + 1 # fill values must be in the end of array for coordinate variables (sort to end)
+                me[numpy.where(me == -9999)] = numpy.max(
+                    me) + 1  # fill values must be in the end of array for coordinate variables (sort to end)
                 sorted_arr = numpy.sort(me, axis=self[varname].dims.index(must_be_sorted_along))
 
                 if decrease_sort_allowed:
@@ -379,7 +392,7 @@ class UC2Data(xarray.Dataset):
                 return CheckResult(ResultCode.ERROR,
                                    "Variable '" + varname + "' has attribute '" + attrname + "' defined. Not allowed.")
 
-        if allowed_types:
+        if allowed_types is not None:
             if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
                 allowed_types = [allowed_types]
 
@@ -401,7 +414,7 @@ class UC2Data(xarray.Dataset):
                            "one of the following: " + str(allowed_types))
                 return result
 
-        if allowed_values:
+        if allowed_values is not None:
             if type(allowed_values) != list:
                 allowed_values = [allowed_values]
             if not self[varname].attrs[attrname] in allowed_values:
@@ -413,14 +426,14 @@ class UC2Data(xarray.Dataset):
                     result.add(ResultCode.ERROR,
                                "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong value")
 
-        if allowed_range:
+        if allowed_range is not None:
             if self[varname].attrs[attrname] < allowed_range[0] or \
                     self[varname].attrs[attrname] > allowed_range[1]:
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "': Attribute '" + attrname + "' outside range. Expected: " +
                            str(allowed_range))
 
-        if regex:
+        if regex is not None:
             if re.fullmatch(regex, self[varname].attrs[attrname]) is None:
                 result.add(ResultCode.ERROR,
                            "Global attribute '" + attrname + "' does not match regular expression " + regex)
@@ -437,7 +450,7 @@ class UC2Data(xarray.Dataset):
             else:
                 return result
 
-        if allowed_types:
+        if allowed_types is not None:
             if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
                 allowed_types = [allowed_types]
 
@@ -456,13 +469,16 @@ class UC2Data(xarray.Dataset):
             if not type(self.attrs[attrname]) in allowed_types:
                 result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong type. Should be " +
                            "one of the following: " + str(allowed_types))
+                return result
 
         if not numpy.isscalar(self.attrs[attrname]):
-            result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' must be scalar but is "+
+            result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' must be scalar but is " +
                        str(type(self.attrs[attrname])))
             return result
 
-        if allowed_values:
+        if allowed_values is not None:
+            if numpy.isscalar(allowed_values):
+                allowed_values = [allowed_values]
             if not self.attrs[attrname] in allowed_values:
                 if len(allowed_values) == 1:
                     result.add(ResultCode.ERROR,
@@ -471,18 +487,18 @@ class UC2Data(xarray.Dataset):
                 else:
                     result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong value")
 
-        if regex:
+        if regex is not None:
             if re.fullmatch(regex, self.attrs[attrname]) is None:
                 result.add(ResultCode.ERROR,
                            "Global attribute '" + attrname + "' does not match regular expression " + regex)
 
-        if max_strlen:
+        if max_strlen is not None:
             if len(self.attrs[attrname]) > max_strlen:
                 result.add(ResultCode.ERROR,
                            "Global attribute '" + attrname + "' is too long. Must be max. " +
                            str(max_strlen) + " characters.")
 
-        if allowed_range:
+        if allowed_range is not None:
             if (self.attrs[attrname] < allowed_range[0]) or (self.attrs[attrname] > allowed_range[1]):
                 result.add(ResultCode.ERROR,
                            "Global attribute '" + attrname + "' is outside allowed range " + str(allowed_range))
@@ -639,7 +655,7 @@ class UC2Data(xarray.Dataset):
             self.check_result["crs"]["grid_mapping_name"].add(self.check_var_attr("crs", "grid_mapping_name", True,
                                                                                   allowed_values="transverse_mercator"))
             self.check_result["crs"]["semi_major_axis"].add(self.check_var_attr("crs", "semi_major_axis", True,
-                                                                                allowed_types=[int,float],
+                                                                                allowed_types=[int, float],
                                                                                 allowed_values=6378137))
             self.check_result["crs"]["inverse_flattening"].add(self.check_var_attr("crs", "inverse_flattening", True,
                                                                                    allowed_types=float,
@@ -740,6 +756,7 @@ class UC2Data(xarray.Dataset):
         data_content_var_names = list()
         dont_check = ["station_h", "crs", "vrs", "height"]
         known_coordinates = ["station_name", "traj_name",
+                             "height",
                              "z", "zw", "zs",
                              "x", "xu", "xs",
                              "y", "yv", "ys",
@@ -806,18 +823,27 @@ class UC2Data(xarray.Dataset):
                                                                   "Variable '" + ikey + "' must not have any attributes.")
                 # Time must be end of time period
                 if ikey == "time_bounds":
-                    if not self[main_key].equals(self[ikey][..., 1]):
+                    if self.check_result[ikey]:
+                        if not self[main_key].equals(self[ikey][..., 1]):
+                            self.check_result[ikey]["variable"].add(ResultCode.ERROR,
+                                                                    "second column of 'time_bounds' must equal data of variable 'time'")
+                    else:
                         self.check_result[ikey]["variable"].add(ResultCode.ERROR,
-                                                                "second column of 'time_bounds' must equal data of variable 'time'")
+                                                                "Could not check values of variable '" + ikey + "'" +
+                                                                " because of previous error with this variable.")
                 # z must be in middle of z bounds
                 if ikey == "z_bounds":
-                    z_bound_lower = self[ikey][..., 0]
-                    z_bound_upper = self[ikey][..., 1]
-                    z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
-                    if not numpy.allclose(self[main_key].values, z_bound_mid.values, equal_nan=True):
+                    if self.check_result[ikey]:
+                        z_bound_lower = self[ikey][..., 0]
+                        z_bound_upper = self[ikey][..., 1]
+                        z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
+                        if not numpy.allclose(self[main_key].values, z_bound_mid.values, equal_nan=True):
+                            self.check_result[ikey]["variable"].add(ResultCode.ERROR,
+                                                                    "values of z must be in the middle between z_bounds.")
+                    else:
                         self.check_result[ikey]["variable"].add(ResultCode.ERROR,
-                                                                "values of z must be in the middle between z_bounds.")
-
+                                                                "Could not check values of variable '" + ikey + "'" +
+                                                                " because of previous error with this variable.")
 
             elif is_ancillary:
                 # Check ancillary
@@ -847,7 +873,8 @@ class UC2Data(xarray.Dataset):
                 # Check obligatory attributes
                 self.check_result[ikey]["long_name"].add(self.check_var_attr(ikey, "long_name", True, allowed_types=str,
                                                                              allowed_values=
-                                                                             self.allowed_variables[expected_data_content][
+                                                                             self.allowed_variables[
+                                                                                 expected_data_content][
                                                                                  "long_name"]))
                 self.check_result[ikey]["units"].add(
                     self.check_var_attr(ikey, "units", True, allowed_types=str))  # TODO: check conversion
@@ -871,14 +898,17 @@ class UC2Data(xarray.Dataset):
                                         allowed_values="crs"))
                 # other attributes
                 self.check_result[ikey]["standard_name"].add(self.check_var_attr(ikey, "standard_name",
-                                                                                 self.allowed_variables[expected_data_content][
+                                                                                 self.allowed_variables[
+                                                                                     expected_data_content][
                                                                                      "standard_name"] != "",
                                                                                  allowed_types=str,
                                                                                  allowed_values=
-                                                                                 self.allowed_variables[expected_data_content][
+                                                                                 self.allowed_variables[
+                                                                                     expected_data_content][
                                                                                      "standard_name"],
                                                                                  must_not_exist=
-                                                                                 self.allowed_variables[expected_data_content][
+                                                                                 self.allowed_variables[
+                                                                                     expected_data_content][
                                                                                      "standard_name"] == ""))
                 self.check_result[ikey]["units_alt"].add(
                     self.check_var_attr(ikey, "units_alt", False, allowed_types=str))  # TODO: check conversion
@@ -1233,8 +1263,8 @@ class CheckResult(OrderedDict):
 
         return out
 
-def check_all_DMS_files(folder):
 
+def check_all_DMS_files(folder):
     all_files = list()
     for root, dirs, files in os.walk(folder):
         for name in files:
@@ -1247,4 +1277,5 @@ def check_all_DMS_files(folder):
 
             with open(str(this_file) + ".res", "w") as outfile:
                 outfile.write(str(data.check_result.warnings()))
+                outfile.write("\n")
                 outfile.write(str(data.check_result.errors()))
