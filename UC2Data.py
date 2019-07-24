@@ -333,13 +333,15 @@ class UC2Data(xarray.Dataset):
                         allowed_types.append(this)
 
             if not self[varname].dtype in allowed_types:
-                result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong type. Should be " +
-                           "one of the following: " + str(allowed_types))
+                result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong type. " +
+                           "Should be one of the following: " + str(allowed_types) + ". " +
+                           "Found type: " + str(self[varname].dtype))
 
         if allowed_range is not None:
             if (self[varname].min() < allowed_range[0]) or (self[varname].max() > allowed_range[1]):
                 result.add(ResultCode.ERROR,
-                           "Variable '" + varname + "' is outside allowed range" + str(allowed_range))
+                           "Variable '" + varname + "' is outside allowed range" + str(allowed_range) + ". " +
+                           "Found ramge: [" + str(self[varname]) + "," + str(self[varname]) + "]")
 
         if dims is not None:
             if type(dims) == list:
@@ -347,7 +349,8 @@ class UC2Data(xarray.Dataset):
             elif type(dims) == str:
                 dims = tuple([dims])
             if self[varname].dims != dims:
-                result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong dimensions. Expected: " + str(dims))
+                result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong dimensions. Expected: " +
+                           str(dims) + ". Found: " + str(self[varname].dims))
 
         if must_be_sorted_along is not None:
             if must_be_sorted_along in self[varname].dims:
@@ -392,9 +395,12 @@ class UC2Data(xarray.Dataset):
                 return CheckResult(ResultCode.ERROR,
                                    "Variable '" + varname + "' has attribute '" + attrname + "' defined. Not allowed.")
 
+        this_value = self[varname].attrs[attrname]
+
         if allowed_types is not None:
             if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
                 allowed_types = [allowed_types]
+            this_type = type(this_value)
 
             # allow all floats?
             if any(i in self.all_floats for i in allowed_types):
@@ -408,35 +414,38 @@ class UC2Data(xarray.Dataset):
                     if this not in allowed_types:
                         allowed_types.append(this)
 
-            if not type(self[varname].attrs[attrname]) in allowed_types:
+            if not this_type in allowed_types:
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong type. Should be " +
-                           "one of the following: " + str(allowed_types))
+                           "one of the following: " + str(allowed_types) + ". Found type: " + str(this_type))
                 return result
 
         if allowed_values is not None:
             if type(allowed_values) != list:
                 allowed_values = [allowed_values]
-            if not self[varname].attrs[attrname] in allowed_values:
+            if not this_value in allowed_values:
                 if len(allowed_values) == 1:
                     result.add(ResultCode.ERROR,
                                "Variable '" + varname + "': Required variable attribute '" + attrname + "'  has wrong value. Should be " +
-                               str(allowed_values[0]))
+                               str(allowed_values[0]) + ". Found value: " + str(this_value))
                 else:
                     result.add(ResultCode.ERROR,
-                               "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong value")
+                               "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong value. " +
+                               "Found value: " + str(this_value))
 
         if allowed_range is not None:
-            if self[varname].attrs[attrname] < allowed_range[0] or \
-                    self[varname].attrs[attrname] > allowed_range[1]:
+            if this_value < allowed_range[0] or \
+                    this_value > allowed_range[1]:
                 result.add(ResultCode.ERROR,
-                           "Variable '" + varname + "': Attribute '" + attrname + "' outside range. Expected: " +
-                           str(allowed_range))
+                           "Variable '" + varname + "': Attribute '" + attrname + "' outside range. " +
+                           "Expected: " + str(allowed_range) + ". " +
+                           "Found: [" + str(numpy.min(this_value)) + "," + str(numpy.max(this_value)) + "]")
 
         if regex is not None:
             if re.fullmatch(regex, self[varname].attrs[attrname]) is None:
                 result.add(ResultCode.ERROR,
-                           "Global attribute '" + attrname + "' does not match regular expression " + regex)
+                           "Global attribute '" + attrname + "' does not match regular expression " + regex + ". " +
+                           "Found value: " + str(this_value))
         return result
 
     def check_glob_attr(self, attrname, must_exist, allowed_types=None, allowed_values=None,
@@ -450,9 +459,13 @@ class UC2Data(xarray.Dataset):
             else:
                 return result
 
+        this_value = self.attrs[attrname]
+
         if allowed_types is not None:
             if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
                 allowed_types = [allowed_types]
+
+            this_type = type(this_value)
 
             # allow all floats?
             if any(i in self.all_floats for i in allowed_types):
@@ -466,42 +479,46 @@ class UC2Data(xarray.Dataset):
                     if this not in allowed_types:
                         allowed_types.append(this)
 
-            if not type(self.attrs[attrname]) in allowed_types:
-                result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong type. Should be " +
-                           "one of the following: " + str(allowed_types))
+            if not this_type in allowed_types:
+                result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong type. " +
+                           "Should be one of the following: " + str(allowed_types) + ". " +
+                           "Found type: " + str(this_type))
                 return result
 
-        if not numpy.isscalar(self.attrs[attrname]):
+        if not numpy.isscalar(this_value):
             result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' must be scalar but is " +
-                       str(type(self.attrs[attrname])))
+                       str(this_type))
             return result
 
         if allowed_values is not None:
             if numpy.isscalar(allowed_values):
                 allowed_values = [allowed_values]
-            if not self.attrs[attrname] in allowed_values:
+            if not this_value in allowed_values:
                 if len(allowed_values) == 1:
                     result.add(ResultCode.ERROR,
-                               "Global attribute '" + attrname + "' has wrong value. Should be " +
-                               str(allowed_values[0]))
+                               "Global attribute '" + attrname + "' has wrong value. " +
+                               "Should be " + str(allowed_values[0]) + ". " +
+                               "Found value: " + str(this_value))
                 else:
                     result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong value")
 
         if regex is not None:
-            if re.fullmatch(regex, self.attrs[attrname]) is None:
+            if re.fullmatch(regex, this_value) is None:
                 result.add(ResultCode.ERROR,
-                           "Global attribute '" + attrname + "' does not match regular expression " + regex)
+                           "Global attribute '" + attrname + "' does not match regular expression " + regex + ". " +
+                           "Found value: " + str(this_value))
 
         if max_strlen is not None:
-            if len(self.attrs[attrname]) > max_strlen:
+            if len(this_value) > max_strlen:
                 result.add(ResultCode.ERROR,
                            "Global attribute '" + attrname + "' is too long. Must be max. " +
                            str(max_strlen) + " characters.")
 
         if allowed_range is not None:
-            if (self.attrs[attrname] < allowed_range[0]) or (self.attrs[attrname] > allowed_range[1]):
+            if (this_value < allowed_range[0]) or (this_value > allowed_range[1]):
                 result.add(ResultCode.ERROR,
-                           "Global attribute '" + attrname + "' is outside allowed range " + str(allowed_range))
+                           "Global attribute '" + attrname + "' is outside allowed range " + str(allowed_range) + ". " +
+                           "Found value: " + str(this_value))
 
         return result
 
