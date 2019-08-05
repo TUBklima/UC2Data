@@ -11,6 +11,7 @@ from collections import OrderedDict
 import netCDF4
 import importlib
 import pathlib
+from cached_property import cached_property
 
 
 libpath = pathlib.Path(importlib.import_module("uc2data").__file__)
@@ -21,7 +22,8 @@ variables_file = respath / "variables.txt"
 institutions_file = respath / "institutions.txt"
 sites_file = respath / "sites.txt"
 
-class UC2Data(xarray.Dataset):
+
+class UC2Data():
     all_floats = [float, numpy.float, numpy.float16, numpy.float32, numpy.float64]
     all_ints = [int, numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.int64]
 
@@ -79,38 +81,50 @@ class UC2Data(xarray.Dataset):
     def __init__(self, path):
 
         self.path = path
-        self.featuretype = None
         self.filename = None
-        self.is_grid = None
-        self.is_ts = None
-        self.is_tsp = None
-        self.is_traj = None
-        self.is_iop = None
-        self.is_lto = None
         self.check_result = None
-        super().__init__()
+
         # decode and mask are False for checking file without xarray's interpretation
-        tmp = xarray.open_dataset(self.path, decode_cf=False, mask_and_scale=False)
-        self.update(tmp, inplace=True)
-        self.attrs = tmp.attrs
-        tmp.close()
+        self.ds = xarray.open_dataset(self.path, decode_cf=False, mask_and_scale=False)
+
+    @cached_property
+    def is_ts(self):
+        return self.featuretype == "timeSeries"
+
+    @cached_property
+    def is_tsp(self):
+        return self.featuretype == "timeSeriesProfile"
+
+    @cached_property
+    def is_traj(self):
+        return self.featuretype == "trajectory"
+
+    @cached_property
+    def is_grid(self):
+        return self.featuretype == "None"
+
+    @cached_property
+    def is_iop(self):
+        if "campaign" in self.ds.attrs:
+            return self.ds.attrs["campaign"][:3] == "IOP"
+        else:
+            return False
+
+    @cached_property
+    def is_lto(self):
+        if "campaign" in self.ds.attrs:
+            return self.ds.attrs["campaign"] == "LTO"
+        else:
+            return False
+
+    @cached_property
+    def featuretype(self):
+        if "featureType" in self.ds.attrs.keys():
+            return self.ds.attrs["featureType"]
+        else:
+            return "None"
 
     def uc2_check(self):
-
-        if "featureType" in self.attrs.keys():
-            self.featuretype = self.attrs["featureType"]
-        else:
-            self.featuretype = "None"
-
-        self.is_ts = self.featuretype == "timeSeries"
-        self.is_tsp = self.featuretype == "timeSeriesProfile"
-        self.is_traj = self.featuretype == "trajectory"
-        self.is_grid = self.featuretype == "None"
-        self.is_iop = False
-        self.is_lto = False
-        if "campaign" in self.attrs:
-            self.is_iop = self.attrs["campaign"][:3] == "IOP"
-            self.is_lto = self.attrs["campaign"] == "LTO"
 
         self.check_result = CheckResult()
 
@@ -130,11 +144,11 @@ class UC2Data(xarray.Dataset):
         if any([x.isunlimited() for k, x in tmp.dimensions.items()]):
             self.check_result["unlimited_dim"].add(ResultCode.ERROR, "Unlimited dimensions not supported.")
 
-        if "nv" in self.dims:
-            if self.dims["nv"] != 2:
+        if "nv" in self.ds.dims:
+            if self.ds.dims["nv"] != 2:
                 self.check_result["nv_is_2"].add(ResultCode.ERROR, "Dimension 'nv' must have size of 2.")
-        if "max_name_len" in self.dims:
-            if self.dims["max_name_len"] != 32:
+        if "max_name_len" in self.ds.dims:
+            if self.ds.dims["max_name_len"] != 32:
                 self.check_result["max_name_len_is_32"].add(ResultCode.ERROR,
                                                             "Dimension 'max_name_len' must have size of 32.")
 
@@ -162,29 +176,29 @@ class UC2Data(xarray.Dataset):
         # Check if origin_lon/origin_lat matches origin_x/origin_y
         if all([self.check_result["origin_lon"], self.check_result["origin_lat"], self.check_result["origin_x"],
                 self.check_result["origin_y"]]):
-            lon_orig = self.attrs["origin_lon"]
-            lat_orig = self.attrs["origin_lat"]
+            lon_orig = self.ds.origin_lon
+            lat_orig = self.ds.origin_lat
             e_orig_ll, n_orig_ll = self.geo2UTM(lon_orig, lat_orig)
 
             self.check_result["origin_coords_match"].add(
-                compare_UTMs(e_orig_ll, n_orig_ll, self.attrs["origin_x"], self.attrs["origin_y"]))
+                compare_UTMs(e_orig_ll, n_orig_ll, self.ds.origin_x, self.ds.origin_y))
 
         # Check if lon/lat matches E_UTM/N_UTM
-        if all(elem in self.keys() for elem in ["lon", "lat", "E_UTM", "N_UTM"]):
+        if all(elem in self.ds.keys() for elem in ["lon", "lat", "E_UTM", "N_UTM"]):
             if all([self.check_result["lon"], self.check_result["lat"], self.check_result["E_UTM"],
                     self.check_result["N_UTM"]]):
                 self.check_result["lon_lat_E_UTM_N_UTM"].add(self.check_geo_vars("lon", "lat", "E_UTM", "N_UTM"))
-        if all(elem in self.keys() for elem in ["lonu", "latu", "Eu_UTM", "Nu_UTM"]):
+        if all(elem in self.ds.keys() for elem in ["lonu", "latu", "Eu_UTM", "Nu_UTM"]):
             if all([self.check_result["lonu"], self.check_result["latu"], self.check_result["Eu_UTM"],
                     self.check_result["Nu_UTM"]]):
                 self.check_result["lonu_latu_Eu_UTM_Nu_UTM"].add(
                     self.check_geo_vars("lonu", "latu", "Eu_UTM", "Nu_UTM"))
-        if all(elem in self.keys() for elem in ["lonv", "latv", "Ev_UTM", "Nv_UTM"]):
+        if all(elem in self.ds.keys() for elem in ["lonv", "latv", "Ev_UTM", "Nv_UTM"]):
             if all([self.check_result["lonv"], self.check_result["latv"], self.check_result["Ev_UTM"],
                     self.check_result["Nv_UTM"]]):
                 self.check_result["lonv_latv_Ev_UTM_Nv_UTM"].add(
                     self.check_geo_vars("lonv", "latv", "Ev_UTM", "Nv_UTM"))
-        if all(elem in self.keys() for elem in ["lons", "lats", "Es_UTM", "Ns_UTM"]):
+        if all(elem in self.ds.keys() for elem in ["lons", "lats", "Es_UTM", "Ns_UTM"]):
             if all([self.check_result["lons"], self.check_result["lats"], self.check_result["Es_UTM"],
                     self.check_result["Ns_UTM"]]):
                 self.check_result["lons_lats_Es_UTM_Ns_UTM"].add(
@@ -192,16 +206,16 @@ class UC2Data(xarray.Dataset):
 
     def check_geo_vars(self, lon_name, lat_name, eutm_name, nutm_name):
 
-        x = self[lon_name].values.flatten()
-        y = self[lat_name].values.flatten()
-        if self[lon_name].dims != self[eutm_name].dims:  # "inflate" array to y,x dims
+        x = self.ds[lon_name].values.flatten()
+        y = self.ds[lat_name].values.flatten()
+        if self.ds[lon_name].dims != self.ds[eutm_name].dims:  # "inflate" array to y,x dims
             # must be un-rotated grid with E_UTM(x), N_UTM(y), lon(y,x), lat(y,x)
-            E_UTM = numpy.tile(self[eutm_name].values, (self[nutm_name].shape[0], 1))
-            N_UTM = numpy.tile(self[nutm_name].values, (self[eutm_name].shape[0], 1))
+            E_UTM = numpy.tile(self.ds[eutm_name].values, (self.ds[nutm_name].shape[0], 1))
+            N_UTM = numpy.tile(self.ds[nutm_name].values, (self.ds[eutm_name].shape[0], 1))
             N_UTM = numpy.transpose(N_UTM)
         else:
-            E_UTM = self[eutm_name].values
-            N_UTM = self[nutm_name].values
+            E_UTM = self.ds[eutm_name].values
+            N_UTM = self.ds[nutm_name].values
         E_UTM = E_UTM.flatten()
         N_UTM = N_UTM.flatten()
 
@@ -241,7 +255,7 @@ class UC2Data(xarray.Dataset):
             fill_allowed = False
         elif xy in ["x", "y", "lon", "lat", "E_UTM", "N_UTM"]:
             if self.is_grid:
-                if "ncol" in self.dims:  # pixel-based surfaces
+                if "ncol" in self.ds.dims:  # pixel-based surfaces
                     dims = ("nrow", "ncol")
                     sort_along = None
                 else:
@@ -304,7 +318,7 @@ class UC2Data(xarray.Dataset):
 
     def check_var(self, varname, must_exist, allowed_types=None, allowed_range=None, dims=None,
                   must_be_sorted_along=None, decrease_sort_allowed=True, fill_allowed=True):
-        exists = varname in self.variables.keys()
+        exists = varname in self.ds.variables.keys()
         result = CheckResult(ResultCode.OK)
 
         if not exists:
@@ -312,6 +326,9 @@ class UC2Data(xarray.Dataset):
                 return CheckResult(ResultCode.ERROR, "Required variable '" + varname + "' not found.")
             else:
                 return result
+
+        this_var = self.ds[varname]
+        this_type = this_var.dtype
 
         if allowed_types is not None:
             if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
@@ -329,35 +346,35 @@ class UC2Data(xarray.Dataset):
                     if this not in allowed_types:
                         allowed_types.append(this)
 
-            if not self[varname].dtype in allowed_types:
+            if not this_type in allowed_types:
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong type. " +
                            "Should be one of the following: " + str(allowed_types) + ". " +
-                           "Found type: " + str(self[varname].dtype))
+                           "Found type: " + str(this_type))
 
         if allowed_range is not None:
-            if (self[varname].min() < allowed_range[0]) or (self[varname].max() > allowed_range[1]):
+            if (this_var.min() < allowed_range[0]) or (this_var.max() > allowed_range[1]):
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "' is outside allowed range" + str(allowed_range) + ". " +
-                           "Found ramge: [" + str(self[varname]) + "," + str(self[varname]) + "]")
+                           "Found ramge: [" + str(this_var.min()) + "," + str(this_var.max()) + "]")
 
         if dims is not None:
             if type(dims) == list:
                 dims = tuple(dims)
             elif type(dims) == str:
                 dims = tuple([dims])
-            if self[varname].dims != dims:
+            if this_var.dims != dims:
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong dimensions. Expected: " +
-                           str(dims) + ". Found: " + str(self[varname].dims))
+                           str(dims) + ". Found: " + str(this_var.dims))
 
         if must_be_sorted_along is not None:
-            if must_be_sorted_along in self[varname].dims:
-                me = self[varname].values.copy()
+            if must_be_sorted_along in this_var.dims:
+                me = this_var.values.copy()
                 me[numpy.where(me == -9999)] = numpy.max(
                     me) + 1  # fill values must be in the end of array for coordinate variables (sort to end)
-                sorted_arr = numpy.sort(me, axis=self[varname].dims.index(must_be_sorted_along))
+                sorted_arr = numpy.sort(me, axis=this_var.dims.index(must_be_sorted_along))
 
                 if decrease_sort_allowed:
-                    anti_sorted_arr = -numpy.sort(-me, axis=self[varname].dims.index(must_be_sorted_along))
+                    anti_sorted_arr = -numpy.sort(-me, axis=this_var.dims.index(must_be_sorted_along))
                     if not (numpy.array_equal(me, sorted_arr) or numpy.array_equal(me, anti_sorted_arr)):
                         result.add(ResultCode.ERROR,
                                    "Variable '" + varname + "' must be sorted along dimension '" + must_be_sorted_along + "'")
@@ -367,11 +384,11 @@ class UC2Data(xarray.Dataset):
                                    "Variable '" + varname + "' must be sorted along dimension '" + must_be_sorted_along + "'")
 
         if not fill_allowed:
-            if "_FillValue" in self[varname].attrs.keys():
+            if "_FillValue" in this_var.attrs.keys():
                 result.add(ResultCode.WARNING, "Variable '" + varname + "' must not contain fill values but has " +
                            "the variable '_FillValue'.")
 
-            if -9999 in self[varname]:  # -9999 must always be the fill value
+            if -9999 in this_var:  # -9999 must always be the fill value
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' contains -9999. No fill values " +
                            "are allowed for this variables. -9999 is the fixed fill value in UC2 data standard.")
 
@@ -379,7 +396,7 @@ class UC2Data(xarray.Dataset):
 
     def check_var_attr(self, varname, attrname, must_exist, allowed_types=None, allowed_values=None, regex=None,
                        must_not_exist=None, allowed_range=None):
-        exists = attrname in self[varname].attrs.keys()
+        exists = attrname in self.ds[varname].attrs.keys()
         result = CheckResult(ResultCode.OK)
         if not exists:
             if must_exist:
@@ -392,7 +409,7 @@ class UC2Data(xarray.Dataset):
                 return CheckResult(ResultCode.ERROR,
                                    "Variable '" + varname + "' has attribute '" + attrname + "' defined. Not allowed.")
 
-        this_value = self[varname].attrs[attrname]
+        this_value = self.ds[varname].attrs[attrname]
 
         if allowed_types is not None:
             if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
@@ -439,7 +456,7 @@ class UC2Data(xarray.Dataset):
                            "Found: [" + str(numpy.min(this_value)) + "," + str(numpy.max(this_value)) + "]")
 
         if regex is not None:
-            if re.fullmatch(regex, self[varname].attrs[attrname]) is None:
+            if re.fullmatch(regex, this_value) is None:
                 result.add(ResultCode.ERROR,
                            "Global attribute '" + attrname + "' does not match regular expression " + regex + ". " +
                            "Found value: " + str(this_value))
@@ -447,7 +464,7 @@ class UC2Data(xarray.Dataset):
 
     def check_glob_attr(self, attrname, must_exist, allowed_types=None, allowed_values=None,
                         max_strlen=None, regex=None, allowed_range=None):
-        exists = attrname in self.attrs.keys()
+        exists = attrname in self.ds.attrs.keys()
         result = CheckResult(ResultCode.OK)
 
         if not exists:
@@ -456,7 +473,7 @@ class UC2Data(xarray.Dataset):
             else:
                 return result
 
-        this_value = self.attrs[attrname]
+        this_value = self.ds.attrs[attrname]
 
         if allowed_types is not None:
             if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
@@ -542,7 +559,7 @@ class UC2Data(xarray.Dataset):
             time_dims = ("traj", "ntime")
             time_dim_name = "ntime"
         else:
-            if "ncol" in self.dims:  # pixel-based surfaces
+            if "ncol" in self.ds.dims:  # pixel-based surfaces
                 pass  # TODO: Wird es erlaubt, pixel ohne time anzulegen?
             else:
                 time_dims = ("time")
@@ -552,7 +569,7 @@ class UC2Data(xarray.Dataset):
             allowed_range = [.01, 86400]
         elif self.is_lto:
             if self.check_result["origin_time"]:
-                ndays = calendar.monthrange(int(self.attrs["origin_time"][0:4]), int(self.attrs["origin_time"][5:7]))[1]
+                ndays = calendar.monthrange(int(self.ds.origin_time[0:4]), int(self.ds.origin_time[5:7]))[1]
                 allowed_range = [.01, ndays * 24 * 60 * 60]
 
         self.check_result["time"]["variable"].add(
@@ -577,12 +594,12 @@ class UC2Data(xarray.Dataset):
             self.check_result["time"]["axis"].add(
                 self.check_var_attr("time", "axis", True, allowed_types=str, allowed_values="T"))
             self.check_result["time"]["fill_values"].add(
-                self.check_var_attr("time", "_FillValue", False, allowed_types=self["time"].dtype,
+                self.check_var_attr("time", "_FillValue", False, allowed_types=self.ds["time"].dtype,
                                     must_not_exist=self.is_grid))
             self.check_result["time"]["units"].add(self.check_var_attr("time", "units", True, allowed_types=str,
                                                                        regex="seconds since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
             if self.check_result["origin_time"] and self.check_result["time"]["units"]:
-                if self.attrs["origin_time"] != self["time"].units[14:]:
+                if self.ds.origin_time != self.ds["time"].units[14:]:
                     self.check_result["time"]["origin_time"].add(ResultCode.ERROR,
                                                                  "Global attribute 'origin_time' does not match units of variable 'time'.")
 
@@ -618,9 +635,9 @@ class UC2Data(xarray.Dataset):
             if self.check_result["z"]:
                 if self.check_result["origin_z"]:
                     self.check_result["z"]["standard_name"].add(
-                        self.check_var_attr("z", "standard_name", self.attrs["origin_z"] == 0, allowed_types=str,
+                        self.check_var_attr("z", "standard_name", self.ds.origin_z == 0, allowed_types=str,
                                             allowed_values="height_above_mean_sea_level",
-                                            must_not_exist=self.attrs["origin_z"] != 0))
+                                            must_not_exist=self.ds.origin_z != 0))
 
         if self.is_ts or self.is_tsp:
             self.check_result["station_h"].add(self.check_var("station_h", True,
@@ -635,7 +652,7 @@ class UC2Data(xarray.Dataset):
         self.check_xy("E_UTM")
         self.check_xy("N_UTM")
 
-        if "s" in self.dims:
+        if "s" in self.ds.dims:
             self.check_xy("xs")
             self.check_xy("ys")
             self.check_xy("lons")
@@ -645,14 +662,14 @@ class UC2Data(xarray.Dataset):
 
         if self.is_grid:
             # if one u is there, all are nedded
-            if any(elem in self for elem in ["xu", "Eu_UTM", "Nu_UTM", "lonu", "latu"]):
+            if any(elem in self.ds for elem in ["xu", "Eu_UTM", "Nu_UTM", "lonu", "latu"]):
                 self.check_xy("xu")
                 self.check_xy("Eu_UTM")
                 self.check_xy("Nu_UTM")
                 self.check_xy("latu")
                 self.check_xy("lonu")
             # if one v is there, all are nedded
-            if any(elem in self for elem in ["xv", "Ev_UTM", "Nv_UTM", "lonv", "latv"]):
+            if any(elem in self.ds for elem in ["xv", "Ev_UTM", "Nv_UTM", "lonv", "latv"]):
                 self.check_xy("yv")
                 self.check_xy("Ev_UTM")
                 self.check_xy("Nv_UTM")
@@ -748,7 +765,7 @@ class UC2Data(xarray.Dataset):
             self.check_result["height"]["variable"].add(self.check_var("height", True,
                                                                        allowed_types=[int, float]))
             if self.check_result["height"]["variable"]:
-                if self["height"].dims != () and self["height"].dims != ("traj", "ntime"):
+                if self.ds["height"].dims != () and self.ds["height"].dims != ("traj", "ntime"):
                     self.check_result["height"]["variable"].add(ResultCode.ERROR,
                                                                 "Variable 'height' must either be scalar " +
                                                                 "or have dimensions (traj, ntime).")
@@ -766,7 +783,6 @@ class UC2Data(xarray.Dataset):
         # Data variables
         ###
 
-        dv = dict()
         data_content_var_names = list()
         dont_check = ["station_h", "crs", "vrs", "height"]
         known_coordinates = ["station_name", "traj_name",
@@ -788,24 +804,24 @@ class UC2Data(xarray.Dataset):
         elif self.is_traj:
             data_dims = ("traj", "ntime")
         else:
-            if "ncol" in self.dims:  # pixel-based surfaces
+            if "ncol" in self.ds.dims:  # pixel-based surfaces
                 data_dims = ("time", "nrow", "ncol")  # TODO: Wird es erlaubt werden, pixel ohne time abzulegen?
             else:
                 data_dims = None
 
         # get all coordinates that appear in this file
         existing_coordinates = list()
-        for ikey in self.variables:
+        for ikey in self.ds:
             if (ikey in known_coordinates) or ikey.startswith("bands_"):
                 existing_coordinates.append(ikey)
         existing_coordinates.sort()
 
-        for ikey in self.variables:
+        for ikey in self.ds:
             if ikey in dont_check:
                 continue
-            is_normal = ikey in self.allowed_variables.keys()
-            is_agg = ikey in [a + "_" + b for a in self.allowed_variables.keys() for b in
-                              self.allowed_aggregations.keys()]
+            is_normal = ikey in self.allowed_variables
+            is_agg = ikey in [a + "_" + b for a in self.allowed_variables for b in
+                              self.allowed_aggregations]
             is_bounds = ikey.endswith("_bounds")
             is_bands = ikey.startswith("bands_")
             is_ancillary = ikey.startswith("ancillary_")
@@ -822,7 +838,7 @@ class UC2Data(xarray.Dataset):
             elif is_bounds:
 
                 main_key = ikey[:-7]
-                if main_key not in self:
+                if main_key not in self.ds:
                     self.check_result[ikey].add(ResultCode.ERROR,
                                                 "Variable '" + ikey + "' seems to be a bounds variable " \
                                                                       "but there is no main variable (expected '" + \
@@ -830,15 +846,15 @@ class UC2Data(xarray.Dataset):
                 else:
                     self.check_result[main_key].add(self.check_var_attr(main_key, "bounds", True,
                                                                         allowed_types=str, allowed_values=ikey))
-                    self.check_result[ikey].add(self.check_var(ikey, True, allowed_types=self[main_key].dtype,
-                                                               dims=self[main_key].dims + ("nv",)))
-                    if len(self[ikey].attrs) != 0:
+                    self.check_result[ikey].add(self.check_var(ikey, True, allowed_types=self.ds[main_key].dtype,
+                                                               dims=self.ds[main_key].dims + ("nv",)))
+                    if len(self.ds[ikey].attrs) != 0:
                         self.check_result[ikey]["attributes"].add(ResultCode.ERROR,
                                                                   "Variable '" + ikey + "' must not have any attributes.")
                 # Time must be end of time period
                 if ikey == "time_bounds":
                     if self.check_result[ikey]:
-                        if not self[main_key].equals(self[ikey][..., 1]):
+                        if not self.ds[main_key].equals(self.ds[ikey][..., 1]):
                             self.check_result[ikey]["variable"].add(ResultCode.ERROR,
                                                                     "second column of 'time_bounds' must equal data of variable 'time'")
                     else:
@@ -848,10 +864,10 @@ class UC2Data(xarray.Dataset):
                 # z must be in middle of z bounds
                 if ikey == "z_bounds":
                     if self.check_result[ikey]:
-                        z_bound_lower = self[ikey][..., 0]
-                        z_bound_upper = self[ikey][..., 1]
+                        z_bound_lower = self.ds[ikey][..., 0]
+                        z_bound_upper = self.ds[ikey][..., 1]
                         z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
-                        if not numpy.allclose(self[main_key].values, z_bound_mid.values, equal_nan=True):
+                        if not numpy.allclose(self.ds[main_key].values, z_bound_mid.values, equal_nan=True):
                             self.check_result[ikey]["variable"].add(ResultCode.ERROR,
                                                                     "values of z must be in the middle between z_bounds.")
                     else:
@@ -862,10 +878,10 @@ class UC2Data(xarray.Dataset):
             elif is_ancillary:
                 # Check ancillary
                 # This is an inner loop over all variables again, to find the one that references this ancillary variable.
-                for tmpKey in self.variables:
-                    if "ancillary_variables" in self[tmpKey].attrs.keys():
-                        if ikey in self[tmpKey].attrs["ancillary_variables"].split(" "):
-                            main_var = self[tmpKey]
+                for tmpKey in self.ds:
+                    if "ancillary_variables" in self.ds[tmpKey].attrs.keys():
+                        if ikey in self.ds[tmpKey].attrs["ancillary_variables"].split(" "):
+                            main_var = self.ds[tmpKey]
                             self.check_result[ikey].add(self.check_var(ikey, True, dims=main_var.dims))
 
             elif is_coordinate:
@@ -893,12 +909,12 @@ class UC2Data(xarray.Dataset):
                 self.check_result[ikey]["units"].add(
                     self.check_var_attr(ikey, "units", True, allowed_types=str))  # TODO: check conversion
                 self.check_result[ikey]["_FillValue"].add(
-                    self.check_var_attr(ikey, "_FillValue", True, allowed_types=self[ikey].dtype,
+                    self.check_var_attr(ikey, "_FillValue", True, allowed_types=self.ds[ikey].dtype,
                                         allowed_values=-9999))
                 self.check_result[ikey]["coordinates"].add(
                     self.check_var_attr(ikey, "coordinates", True, allowed_types=str))
                 if self.check_result[ikey]["coordinates"]:
-                    this_coords = self[ikey].attrs["coordinates"].split(" ")
+                    this_coords = self.ds[ikey].attrs["coordinates"].split(" ")
                     this_coords.sort()
                     if this_coords != existing_coordinates:
                         self.check_result[ikey]["coordinates"].add(ResultCode.WARNING,
@@ -948,17 +964,17 @@ class UC2Data(xarray.Dataset):
                         this_agg_short = ikey.split("_")[-1]
                         this_agg_cf = self.allowed_aggregations[this_agg_short]
                         if not re.match(r".*?\btime\b( )?:( )?" + re.escape(this_agg_cf) + r"\b",
-                                        self[ikey].attrs["cell_methods"]):
+                                        self.ds[ikey].attrs["cell_methods"]):
                             self.check_result[ikey]["cell_methods"].add(ResultCode.ERROR,
                                                                         "The variable name indicates a " +
                                                                         "temporal aggregation. This must be given by cell_methods: " +
                                                                         "'time: " + this_agg_cf + "'.")
 
                 # Check ancillary_variables attribute
-                if "ancillary_variables" in self[ikey].attrs.keys():
-                    anc_var = self[ikey].attrs["ancillary_variables"].split(" ")
+                if "ancillary_variables" in self.ds[ikey].attrs.keys():
+                    anc_var = self.ds[ikey].attrs["ancillary_variables"].split(" ")
                     for i in anc_var:
-                        if i not in self.keys():
+                        if i not in self.ds:
                             self.check_result[ikey]["ancillary_variables"].add(ResultCode.ERROR,
                                                                                "Expected ancillary variable '" +
                                                                                i + "' not found in file.")
@@ -966,8 +982,8 @@ class UC2Data(xarray.Dataset):
                                                                                            True, allowed_types=str))
 
                 # Check bounds attribute
-                if "bounds" in self[ikey].attrs.keys():
-                    if ikey + "_bounds" not in self.keys():
+                if "bounds" in self.ds[ikey].attrs.keys():
+                    if ikey + "_bounds" not in self.ds:
                         self.check_result[ikey]["bounds"].add(ResultCode.ERROR,
                                                               "Expected variable '" + ikey + "_bounds' not found.")
                     self.check_result[ikey]["bounds"].add(self.check_var_attr(ikey, "bounds", True,
@@ -978,7 +994,7 @@ class UC2Data(xarray.Dataset):
             self.check_result.add(ResultCode.ERROR, "No data variable found.")
         elif len(data_content_var_names) == 1:
             if self.check_result["data_content"]:
-                if self.attrs["data_content"] != data_content_var_names[0]:
+                if self.ds.data_content != data_content_var_names[0]:
                     self.check_result["data_content"].add(ResultCode.ERROR, "Only one data variable found. '" +
                                                           data_content_var_names[
                                                               0] + "'. Expected global attribute 'data_content'" +
@@ -1035,11 +1051,11 @@ class UC2Data(xarray.Dataset):
         self.check_result["site"].add(self.check_glob_attr("site", True, str, allowed_values=UC2Data.allowed_sites,
                                                            max_strlen=12))
         if self.check_result["location"] and self.check_result["site"]:
-            if UC2Data.allowed_locations[UC2Data.allowed_sites.index(self.attrs["site"])] != self.attrs["location"]:
-                self.check_result["site"].add(ResultCode.ERROR, "site '" + self.attrs[
-                    "site"] + "' does not match location '" + self.attrs["location"] + "'")
-                self.check_result["location"].add(ResultCode.ERROR, "site '" + self.attrs[
-                    "site"] + "' does not match location '" + self.attrs["location"] + "'")
+            if UC2Data.allowed_locations[UC2Data.allowed_sites.index(self.ds.site)] != self.ds.location:
+                self.check_result["site"].add(ResultCode.ERROR, "site '" + self.ds.site +
+                                              "' does not match location '" + self.ds.location + "'")
+                self.check_result["location"].add(ResultCode.ERROR, "site '" + self.ds.site +
+                                                  "' does not match location '" + self.ds.location + "'")
 
         self.check_result["institution"].add(
             self.check_glob_attr("institution", True, str, allowed_values=UC2Data.allowed_institutions))
@@ -1047,31 +1063,31 @@ class UC2Data(xarray.Dataset):
             self.check_glob_attr("acronym", True, str, allowed_values=UC2Data.allowed_acronyms,
                                  max_strlen=12))
         if self.check_result["institution"] and self.check_result["acronym"]:
-            if UC2Data.allowed_institutions.index(self.attrs["institution"]) != UC2Data.allowed_acronyms.index(
-                    self.attrs["acronym"]):
-                self.check_result["institution"].add(ResultCode.ERROR, "institution '" + self.attrs[
-                    "institution"] + "' does not match acronym '" + self.attrs["acronym"] + "'")
-                self.check_result["acronym"].add(ResultCode.ERROR, "institution '" + self.attrs[
-                    "institution"] + "' does not match acronym '" + self.attrs["acronym"] + "'")
+            if UC2Data.allowed_institutions.index(self.ds.institution) != UC2Data.allowed_acronyms.index(
+                    self.ds.acronym):
+                self.check_result["institution"].add(ResultCode.ERROR, "institution '" + self.ds.institution +
+                                                     "' does not match acronym '" + self.ds.acronym + "'")
+                self.check_result["acronym"].add(ResultCode.ERROR, "institution '" + self.ds.institution +
+                                                 "' does not match acronym '" + self.ds.acronym + "'")
 
         self.check_result["author"].add(self.check_glob_attr("author", True, str))
         if self.check_result["author"]:
-            if self.attrs["author"] != "":
-                self.check_result["author"].add(check_person_field(self.attrs["author"], "author"))
+            if self.ds.author != "":
+                self.check_result["author"].add(check_person_field(self.ds.author, "author"))
 
         self.check_result["contact_person"].add(self.check_glob_attr("contact_person", True, str))
         if self.check_result["contact_person"]:
-            self.check_result["contact_person"].add(check_person_field(self.attrs["contact_person"], "contact_person"))
+            self.check_result["contact_person"].add(check_person_field(self.ds.contact_person, "contact_person"))
 
         self.check_result["campaign"].add(self.check_glob_attr("campaign", True, str, regex="^[A-Za-z0-9\._-]+$",
                                                                max_strlen=12))
         if self.check_result["campaign"]:
             if self.is_iop:
-                if (len(self.attrs["campaign"]) != 5) or (not int(self.attrs["campaign"][3:]) in range(1, 100)):
+                if (len(self.ds.campaign) != 5) or (not int(self.ds.campaign[3:]) in range(1, 100)):
                     self.check_result["campaign"].add(ResultCode.ERROR,
                                                       "Global attribute 'campaign': If IOP then string must be IOPxx")
-            elif self.attrs["campaign"][0:4] in ["VALR", "VALM"]:
-                if (len(self.attrs["campaign"]) != 6) or (not int(self.attrs["campaign"][4:]) in range(1, 100)):
+            elif self.ds.campaign[0:4] in ["VALR", "VALM"]:
+                if (len(self.ds.campaign) != 6) or (not int(self.ds.campaign[4:]) in range(1, 100)):
                     self.check_result["campaign"].add(ResultCode.ERROR,
                                                       "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx")
 
@@ -1087,11 +1103,11 @@ class UC2Data(xarray.Dataset):
                 raise Exception("Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity tests.")
 
             if i == "origin_time":
-                vals.append(self.attrs[i][: 10].replace("-", ""))
+                vals.append(self.ds.attrs[i][: 10].replace("-", ""))
             elif i == "version":
-                vals.append(str(self.attrs[i]).zfill(3))
+                vals.append(str(self.ds.attrs[i]).zfill(3))
             else:
-                vals.append(self.attrs[i].replace("-", "_"))
+                vals.append(self.ds.attrs[i].replace("-", "_"))
 
         filename = "_".join(vals) + ".nc"
         self.filename = filename
@@ -1099,7 +1115,7 @@ class UC2Data(xarray.Dataset):
 
     def geo2UTM(self, x, y):
 
-        utm = pyproj.CRS(self["crs"].attrs["epsg_code"].lower(), preserve_units=False)
+        utm = pyproj.CRS(self.ds["crs"].attrs["epsg_code"].lower(), preserve_units=False)
         geo = pyproj.CRS("epsg:4258")
 
         return pyproj.transform(geo, utm, y, x)
