@@ -11,11 +11,11 @@ from collections import OrderedDict
 import netCDF4
 
 
-aggregations_file = "resources/aggregations.txt"
-data_content_file = "resources/data_content.txt"
-variables_file = "resources/variables.txt"
-institutions_file = "resources/institutions.txt"
-sites_file = "resources/sites.txt"
+aggregations_file = "uc2data/resources/aggregations.txt"
+data_content_file = "uc2data/resources/data_content.txt"
+variables_file = "uc2data/resources/variables.txt"
+institutions_file = "uc2data/resources/institutions.txt"
+sites_file = "uc2data/resources/sites.txt"
 
 class UC2Data(xarray.Dataset):
     all_floats = [float, numpy.float, numpy.float16, numpy.float32, numpy.float64]
