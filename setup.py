@@ -3,6 +3,9 @@
 from setuptools import setup, find_packages
 
 
+with open('requirements.txt') as f:
+    requirements = f.read().splitlines()
+
 with open('README.rst') as f:
     readme = f.read()
 
@@ -18,5 +21,6 @@ setup(
     author_email='achim.holtmann@tu-berlin.de, grassmann@tu-berlin.de',
     url='https://gitlab.klima.tu-berlin.de/klima/uc2data.git',
     license=license,
+    install_requires=requirements,
     packages=find_packages(exclude=('tests', 'docs'))
 )
