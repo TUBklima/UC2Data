@@ -9,13 +9,17 @@ import calendar
 from numpy.core.defchararray import add as str_add
 from collections import OrderedDict
 import netCDF4
+import importlib
+import pathlib
 
 
-aggregations_file = "uc2data/resources/aggregations.txt"
-data_content_file = "uc2data/resources/data_content.txt"
-variables_file = "uc2data/resources/variables.txt"
-institutions_file = "uc2data/resources/institutions.txt"
-sites_file = "uc2data/resources/sites.txt"
+libpath = pathlib.Path(importlib.import_module("uc2data").__file__)
+respath = libpath.parent / "resources"
+aggregations_file = respath / "aggregations.txt"
+data_content_file = respath / "data_content.txt"
+variables_file = respath / "variables.txt"
+institutions_file = respath / "institutions.txt"
+sites_file = respath / "sites.txt"
 
 class UC2Data(xarray.Dataset):
     all_floats = [float, numpy.float, numpy.float16, numpy.float32, numpy.float64]
