@@ -21,6 +21,7 @@ setup(
     author_email='achim.holtmann@tu-berlin.de, grassmann@tu-berlin.de',
     url='https://gitlab.klima.tu-berlin.de/klima/uc2data.git',
     license=license,
+    include_package_data=True,
     install_requires=requirements,
     packages=find_packages(exclude=('tests', 'docs'))
 )
