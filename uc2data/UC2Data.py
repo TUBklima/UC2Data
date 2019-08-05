@@ -1,10 +1,7 @@
 from __future__ import annotations
-import os
 import pyproj
 import xarray
 import numpy
-import sys
-import pathlib
 import enum
 import csv
 import re
@@ -13,10 +10,6 @@ from numpy.core.defchararray import add as str_add
 from collections import OrderedDict
 import netCDF4
 
-
-is_win = sys.platform in ['win32', 'win64']
-if not is_win:
-    from cfchecker import cfchecks
 
 aggregations_file = "resources/aggregations.txt"
 data_content_file = "resources/data_content.txt"
