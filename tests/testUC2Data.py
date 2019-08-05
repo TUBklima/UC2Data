@@ -1,11 +1,10 @@
 import unittest
-import os
-from UC2Data import *
+from uc2data.UC2Data import *
 
 
 class TestCheckResult(unittest.TestCase):
 
-    file_dir = "test/test_files/"
+    file_dir = "tests/test_files/"
     def test_add(self):
         a = CheckResult()
 

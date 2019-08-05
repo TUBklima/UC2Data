@@ -13,16 +13,16 @@ from numpy.core.defchararray import add as str_add
 from collections import OrderedDict
 import netCDF4
 
+
 is_win = sys.platform in ['win32', 'win64']
 if not is_win:
     from cfchecker import cfchecks
 
-aggregations_file = "aggregations.txt"
-data_content_file = "data_content.txt"
-variables_file = "variables.txt"
-institutions_file = "institutions.txt"
-sites_file = "sites.txt"
-
+aggregations_file = "resources/aggregations.txt"
+data_content_file = "resources/data_content.txt"
+variables_file = "resources/variables.txt"
+institutions_file = "resources/institutions.txt"
+sites_file = "resources/sites.txt"
 
 class UC2Data(xarray.Dataset):
     all_floats = [float, numpy.float, numpy.float16, numpy.float32, numpy.float64]
@@ -1087,7 +1087,7 @@ class UC2Data(xarray.Dataset):
 
         for i in attrs:
             if not self.check_result[i]:
-                raise Exception("Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity test.")
+                raise Exception("Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity tests.")
 
             if i == "origin_time":
                 vals.append(self.attrs[i][: 10].replace("-", ""))
@@ -1279,20 +1279,3 @@ class CheckResult(OrderedDict):
                 out[k].add(v.errors())
 
         return out
-
-
-def check_all_DMS_files(folder):
-    all_files = list()
-    for root, dirs, files in os.walk(folder):
-        for name in files:
-            this_file = pathlib.Path(root, name)
-            if not str(this_file).endswith(".nc"):
-                continue
-
-            data = UC2Data(this_file)
-            data.uc2_check()
-
-            with open(str(this_file) + ".res", "w") as outfile:
-                outfile.write(str(data.check_result.warnings()))
-                outfile.write("\n")
-                outfile.write(str(data.check_result.errors()))
