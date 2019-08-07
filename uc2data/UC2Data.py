@@ -13,7 +13,6 @@ import importlib
 import pathlib
 from cached_property import cached_property
 
-
 libpath = pathlib.Path(importlib.import_module("uc2data").__file__)
 respath = libpath.parent / "resources"
 aggregations_file = respath / "aggregations.txt"
@@ -81,7 +80,6 @@ class UC2Data():
     def __init__(self, path):
 
         self.path = path
-        self.filename = None
         self.check_result = None
 
         # decode and mask are False for checking file without xarray's interpretation
@@ -106,21 +104,21 @@ class UC2Data():
     @cached_property
     def is_iop(self):
         if "campaign" in self.ds.attrs:
-            return self.ds.attrs["campaign"][:3] == "IOP"
+            return self.ds.campaign[:3] == "IOP"
         else:
             return False
 
     @cached_property
     def is_lto(self):
         if "campaign" in self.ds.attrs:
-            return self.ds.attrs["campaign"] == "LTO"
+            return self.ds.campaign == "LTO"
         else:
             return False
 
     @cached_property
     def featuretype(self):
-        if "featureType" in self.ds.attrs.keys():
-            return self.ds.attrs["featureType"]
+        if "featureType" in self.ds.attrs:
+            return self.ds.featureType
         else:
             return "None"
 
@@ -140,23 +138,13 @@ class UC2Data():
         # Check dims
         ###
 
-        tmp = netCDF4.Dataset(self.path)
-        if any([x.isunlimited() for k, x in tmp.dimensions.items()]):
-            self.check_result["unlimited_dim"].add(ResultCode.ERROR, "Unlimited dimensions not supported.")
-
-        if "nv" in self.ds.dims:
-            if self.ds.dims["nv"] != 2:
-                self.check_result["nv_is_2"].add(ResultCode.ERROR, "Dimension 'nv' must have size of 2.")
-        if "max_name_len" in self.ds.dims:
-            if self.ds.dims["max_name_len"] != 32:
-                self.check_result["max_name_len_is_32"].add(ResultCode.ERROR,
-                                                            "Dimension 'max_name_len' must have size of 32.")
+        self.check_dims()
 
         ###
         # Check variables
         ###
 
-        self.check_all_vars()
+        self._check_all_vars()
 
         # TODO: If all variables have cell_methods with time:point then no time_bounds (and bounds attribute)
         # TODO: If all variables have cell_methods with z:point then no z_bounds (and bounds attribute)
@@ -166,50 +154,44 @@ class UC2Data():
         ###
 
         if self.check_result["crs"]:
-            self.check_coordinates()
+            self._check_coordinates()
         else:
             self.check_result["coordinate_transform"].add(ResultCode.ERROR, "Cannot check geographic coordinates " +
                                                           "because of error in 'crs' variable.")
 
-    def check_coordinates(self):
+    def _check_coordinates(self):
 
         # Check if origin_lon/origin_lat matches origin_x/origin_y
         if all([self.check_result["origin_lon"], self.check_result["origin_lat"], self.check_result["origin_x"],
                 self.check_result["origin_y"]]):
-            lon_orig = self.ds.origin_lon
-            lat_orig = self.ds.origin_lat
-            e_orig_ll, n_orig_ll = self.geo2UTM(lon_orig, lat_orig)
+            e_orig_ll, n_orig_ll = self.geo2UTM(self.ds.origin_lon, self.ds.origin_lat)
 
             self.check_result["origin_coords_match"].add(
                 compare_UTMs(e_orig_ll, n_orig_ll, self.ds.origin_x, self.ds.origin_y))
+        else:
+            self.check_result["origin_coords_match"].add(
+                ResultCode.ERROR, "Cannot check if origin_lon/lat matches origin_x/y because of error "
+                                  "in one of these global attributes"
+            )
 
         # Check if lon/lat matches E_UTM/N_UTM
-        if all(elem in self.ds.keys() for elem in ["lon", "lat", "E_UTM", "N_UTM"]):
-            if all([self.check_result["lon"], self.check_result["lat"], self.check_result["E_UTM"],
-                    self.check_result["N_UTM"]]):
-                self.check_result["lon_lat_E_UTM_N_UTM"].add(self.check_geo_vars("lon", "lat", "E_UTM", "N_UTM"))
-        if all(elem in self.ds.keys() for elem in ["lonu", "latu", "Eu_UTM", "Nu_UTM"]):
-            if all([self.check_result["lonu"], self.check_result["latu"], self.check_result["Eu_UTM"],
-                    self.check_result["Nu_UTM"]]):
-                self.check_result["lonu_latu_Eu_UTM_Nu_UTM"].add(
-                    self.check_geo_vars("lonu", "latu", "Eu_UTM", "Nu_UTM"))
-        if all(elem in self.ds.keys() for elem in ["lonv", "latv", "Ev_UTM", "Nv_UTM"]):
-            if all([self.check_result["lonv"], self.check_result["latv"], self.check_result["Ev_UTM"],
-                    self.check_result["Nv_UTM"]]):
-                self.check_result["lonv_latv_Ev_UTM_Nv_UTM"].add(
-                    self.check_geo_vars("lonv", "latv", "Ev_UTM", "Nv_UTM"))
-        if all(elem in self.ds.keys() for elem in ["lons", "lats", "Es_UTM", "Ns_UTM"]):
-            if all([self.check_result["lons"], self.check_result["lats"], self.check_result["Es_UTM"],
-                    self.check_result["Ns_UTM"]]):
-                self.check_result["lons_lats_Es_UTM_Ns_UTM"].add(
-                    self.check_geo_vars("lons", "lats", "Es_UTM", "Ns_UTM"))
+
+        coord_list = [["lon", "lat", "E_UTM", "N_UTM"],  # standard coordinates
+                      ["lonu", "latu", "Eu_UTM", "Nu_UTM"],  # coordinates of u-point in grid box
+                      ["lonv", "latv", "Ev_UTM", "Nv_UTM"],  # coordinates of v-point in grid box
+                      ["lons", "lats", "Es_UTM", "Ns_UTM"]]  # coordinates of surfaces
+
+        for i_coord in coord_list:
+            if all(elem in self.ds.keys() for elem in i_coord):
+                if all(self.check_result[x] for x in i_coord):
+                    self.check_result["_".join(i_coord)].add(self.check_geo_vars(*i_coord))
 
     def check_geo_vars(self, lon_name, lat_name, eutm_name, nutm_name):
 
         x = self.ds[lon_name].values.flatten()
         y = self.ds[lat_name].values.flatten()
         if self.ds[lon_name].dims != self.ds[eutm_name].dims:  # "inflate" array to y,x dims
-            # must be un-rotated grid with E_UTM(x), N_UTM(y), lon(y,x), lat(y,x)
+            # this case is for un-rotated grid with E_UTM(x), N_UTM(y), lon(y,x), lat(y,x)
             E_UTM = numpy.tile(self.ds[eutm_name].values, (self.ds[nutm_name].shape[0], 1))
             N_UTM = numpy.tile(self.ds[nutm_name].values, (self.ds[eutm_name].shape[0], 1))
             N_UTM = numpy.transpose(N_UTM)
@@ -237,9 +219,11 @@ class UC2Data():
 
     def check_xy(self, xy):
 
+        # is xy a box border?
         if xy in ["xu", "yv", "zw", "Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM",
                   "lonu", "lonv", "latu", "latv"]:
-            fill_allowed = False
+
+            fill_allowed = False  # grid coordinate variables may not have fill values
             if xy in ["xu", "yv", "zw"]:
                 dims = xy
                 sort_along = xy
@@ -247,12 +231,20 @@ class UC2Data():
                 dims = ("yv", "xu")
                 sort_along = None
             else:
-                dims = "xu" if xy in ["Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM"] else "yv"
-                sort_along = dims
+                if xy in ["Eu_UTM", "Ev_UTM"]:
+                    dims = ["xu", ("yv", "xu")]  # can be 1-dim or 2-dim (if rotated)
+                    sort_along = "xu"
+                else:
+                    dims = ["yv", ("yv", "xu")]  # can be 1-dim or 2-dim (if rotated)
+                    sort_along = "yv"
+
+        # surface coordinate?
         elif xy in ["xs", "ys", "lons", "lats", "Es_UTM", "Ns_UTM"]:
             dims = "s"
             sort_along = None
             fill_allowed = False
+
+        # standard corrdinate?
         elif xy in ["x", "y", "lon", "lat", "E_UTM", "N_UTM"]:
             if self.is_grid:
                 if "ncol" in self.ds.dims:  # pixel-based surfaces
@@ -266,8 +258,12 @@ class UC2Data():
                         dims = ("y", "x")
                         sort_along = None
                     elif xy in ["E_UTM", "N_UTM"]:
-                        dims = "x" if xy == "E_UTM" else "y"
-                        sort_along = dims
+                        if xy == "E_UTM":
+                            dims = ["x", ("y", "x")]
+                            sort_along = "x"
+                        else:
+                            dims = ["y", ("y", "x")]
+                            sort_along = "y"
                     fill_allowed = False
             elif self.is_ts or self.is_tsp:
                 dims = "station"
@@ -287,21 +283,30 @@ class UC2Data():
                                            allowed_types=[int, float],
                                            dims=dims, must_be_sorted_along=sort_along, decrease_sort_allowed=True,
                                            fill_allowed=fill_allowed))
-        if out["variable"]:
+
+        if out["variable"]: # if no error yet
 
             if xy in ["x", "xs", "y", "ys", "xu", "yv"]:
                 long_n = "distance to origin in " + xy[0] + "-direction"
                 standard_n = None
-                axis = xy.upper()
+                axis = xy[0].upper()
                 units = "m"
             elif xy in ["lon", "lons", "lat", "lats", "lonu", "lonv", "latu", "latv"]:
-                long_n = "longitude" if xy[:3] == "lon" else "latitude"
+                if xy.startswith("lon"):
+                    long_n = "longitude"
+                    units = "degrees_east"
+                else:
+                    long_n = "latitude"
+                    units = "degrees_north"
                 standard_n = long_n
                 axis = None
-                units = "degrees_east" if xy[:3] == "lon" else "degrees_north"
             elif xy in ["E_UTM", "Es_UTM", "N_UTM", "Ns_UTM", "Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM"]:
-                long_n = "easting" if xy[0] == "E" else "northing"
-                standard_n = "projection_x_coordinate" if xy[0] == "E" else "projection_y_coordinate"
+                if xy.startswith("E"):
+                    long_n = "easting"
+                    standard_n = "projection_x_coordinate"
+                else:
+                    long_n = "northing"
+                    standard_n = "projection_y_coordinate"
                 axis = None
                 units = "m"
 
@@ -318,7 +323,7 @@ class UC2Data():
 
     def check_var(self, varname, must_exist, allowed_types=None, allowed_range=None, dims=None,
                   must_be_sorted_along=None, decrease_sort_allowed=True, fill_allowed=True):
-        exists = varname in self.ds.variables.keys()
+        exists = varname in self.ds.variables
         result = CheckResult(ResultCode.OK)
 
         if not exists:
@@ -331,7 +336,7 @@ class UC2Data():
         this_type = this_var.dtype
 
         if allowed_types is not None:
-            if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
+            if type(allowed_types) != list:
                 allowed_types = [allowed_types]
 
             # allow all floats?
@@ -355,21 +360,27 @@ class UC2Data():
             if (this_var.min() < allowed_range[0]) or (this_var.max() > allowed_range[1]):
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "' is outside allowed range" + str(allowed_range) + ". " +
-                           "Found ramge: [" + str(this_var.min()) + "," + str(this_var.max()) + "]")
+                           "Found range: [" + str(this_var.values.min()) + "," + str(this_var.values.max()) + "]")
 
         if dims is not None:
-            if type(dims) == list:
-                dims = tuple(dims)
-            elif type(dims) == str:
-                dims = tuple([dims])
-            if this_var.dims != dims:
+            if type(dims) == str:  # dims can be scalar string
+                dims = (dims,)
+
+            if type(dims) == tuple:  # make list of tuples of dims
+                dims = [dims]
+
+            for i_dim in range(len(dims)):
+                if type(dims[i_dim]) == str:  # if dims is str within list make tuple in place
+                    dims[i_dim] = (dims[i_dim],)
+
+            if not this_var.dims in dims:
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong dimensions. Expected: " +
                            str(dims) + ". Found: " + str(this_var.dims))
 
         if must_be_sorted_along is not None:
             if must_be_sorted_along in this_var.dims:
                 me = this_var.values.copy()
-                me[numpy.where(me == -9999)] = numpy.max(
+                me[me == -9999] = numpy.max(
                     me) + 1  # fill values must be in the end of array for coordinate variables (sort to end)
                 sorted_arr = numpy.sort(me, axis=this_var.dims.index(must_be_sorted_along))
 
@@ -382,11 +393,14 @@ class UC2Data():
                     if not numpy.array_equal(me, sorted_arr):
                         result.add(ResultCode.ERROR,
                                    "Variable '" + varname + "' must be sorted along dimension '" + must_be_sorted_along + "'")
+            else:
+                result.add(ResultCode.ERROR, "Variable should be sorted along " + str(must_be_sorted_along) +
+                           " but dim not found in variable.")
 
         if not fill_allowed:
-            if "_FillValue" in this_var.attrs.keys():
+            if "_FillValue" in this_var.attrs:
                 result.add(ResultCode.WARNING, "Variable '" + varname + "' must not contain fill values but has " +
-                           "the variable '_FillValue'.")
+                           "the variable attribute '_FillValue'.")
 
             if -9999 in this_var:  # -9999 must always be the fill value
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' contains -9999. No fill values " +
@@ -396,7 +410,7 @@ class UC2Data():
 
     def check_var_attr(self, varname, attrname, must_exist, allowed_types=None, allowed_values=None, regex=None,
                        must_not_exist=None, allowed_range=None):
-        exists = attrname in self.ds[varname].attrs.keys()
+        exists = attrname in self.ds[varname].attrs
         result = CheckResult(ResultCode.OK)
         if not exists:
             if must_exist:
@@ -412,7 +426,7 @@ class UC2Data():
         this_value = self.ds[varname].attrs[attrname]
 
         if allowed_types is not None:
-            if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
+            if type(allowed_types) != list:
                 allowed_types = [allowed_types]
             this_type = type(this_value)
 
@@ -448,8 +462,7 @@ class UC2Data():
                                "Found value: " + str(this_value))
 
         if allowed_range is not None:
-            if this_value < allowed_range[0] or \
-                    this_value > allowed_range[1]:
+            if this_value < allowed_range[0] or this_value > allowed_range[1]:
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "': Attribute '" + attrname + "' outside range. " +
                            "Expected: " + str(allowed_range) + ". " +
@@ -464,7 +477,7 @@ class UC2Data():
 
     def check_glob_attr(self, attrname, must_exist, allowed_types=None, allowed_values=None,
                         max_strlen=None, regex=None, allowed_range=None):
-        exists = attrname in self.ds.attrs.keys()
+        exists = attrname in self.ds.attrs
         result = CheckResult(ResultCode.OK)
 
         if not exists:
@@ -474,12 +487,11 @@ class UC2Data():
                 return result
 
         this_value = self.ds.attrs[attrname]
+        this_type = type(this_value)
 
         if allowed_types is not None:
-            if type(allowed_types) == type or type(allowed_types) == numpy.dtype:
+            if type(allowed_types) != list:
                 allowed_types = [allowed_types]
-
-            this_type = type(this_value)
 
             # allow all floats?
             if any(i in self.all_floats for i in allowed_types):
@@ -505,7 +517,7 @@ class UC2Data():
             return result
 
         if allowed_values is not None:
-            if numpy.isscalar(allowed_values):
+            if type(allowed_values) != list:
                 allowed_values = [allowed_values]
             if not this_value in allowed_values:
                 if len(allowed_values) == 1:
@@ -536,7 +548,21 @@ class UC2Data():
 
         return result
 
-    def check_all_vars(self):
+    def check_dims(self):
+        tmp = netCDF4.Dataset(self.path)
+        if any([x.isunlimited() for k, x in tmp.dimensions.items()]):
+            self.check_result["unlimited_dim"].add(ResultCode.ERROR, "Unlimited dimensions not supported.")
+        tmp.close()
+
+        if "nv" in self.ds.dims:
+            if self.ds.dims["nv"] != 2:
+                self.check_result["nv_is_2"].add(ResultCode.ERROR, "Dimension 'nv' must have size of 2.")
+        if "max_name_len" in self.ds.dims:
+            if self.ds.dims["max_name_len"] != 32:
+                self.check_result["max_name_len_is_32"].add(ResultCode.ERROR,
+                                                            "Dimension 'max_name_len' must have size of 32.")
+
+    def _check_all_vars(self):
 
         # vrs
 
@@ -562,7 +588,7 @@ class UC2Data():
             if "ncol" in self.ds.dims:  # pixel-based surfaces
                 pass  # TODO: Wird es erlaubt, pixel ohne time anzulegen?
             else:
-                time_dims = ("time")
+                time_dims = ("time",)
                 time_dim_name = "time"
 
         if self.is_iop:
@@ -606,10 +632,10 @@ class UC2Data():
         # z
 
         if self.is_grid:
-            z_dims = ("z")
+            z_dims = ("z",)
             must_be_sorted_along = "z"
         elif self.is_ts:
-            z_dims = ("station")
+            z_dims = ("station",)
             must_be_sorted_along = None
         elif self.is_tsp:
             z_dims = ("station", "ntime", "nz")
@@ -642,7 +668,7 @@ class UC2Data():
         if self.is_ts or self.is_tsp:
             self.check_result["station_h"].add(self.check_var("station_h", True,
                                                               allowed_types=[int, float],
-                                                              dims=("station")))
+                                                              dims=("station",)))
 
         # x, y
         self.check_xy("x")
@@ -879,8 +905,8 @@ class UC2Data():
                 # Check ancillary
                 # This is an inner loop over all variables again, to find the one that references this ancillary variable.
                 for tmpKey in self.ds:
-                    if "ancillary_variables" in self.ds[tmpKey].attrs.keys():
-                        if ikey in self.ds[tmpKey].attrs["ancillary_variables"].split(" "):
+                    if "ancillary_variables" in self.ds[tmpKey].attrs:
+                        if ikey in self.ds[tmpKey].ancillary_variables.split(" "):
                             main_var = self.ds[tmpKey]
                             self.check_result[ikey].add(self.check_var(ikey, True, dims=main_var.dims))
 
@@ -914,7 +940,7 @@ class UC2Data():
                 self.check_result[ikey]["coordinates"].add(
                     self.check_var_attr(ikey, "coordinates", True, allowed_types=str))
                 if self.check_result[ikey]["coordinates"]:
-                    this_coords = self.ds[ikey].attrs["coordinates"].split(" ")
+                    this_coords = self.ds[ikey].coordinates.split(" ")
                     this_coords.sort()
                     if this_coords != existing_coordinates:
                         self.check_result[ikey]["coordinates"].add(ResultCode.WARNING,
@@ -964,15 +990,15 @@ class UC2Data():
                         this_agg_short = ikey.split("_")[-1]
                         this_agg_cf = self.allowed_aggregations[this_agg_short]
                         if not re.match(r".*?\btime\b( )?:( )?" + re.escape(this_agg_cf) + r"\b",
-                                        self.ds[ikey].attrs["cell_methods"]):
+                                        self.ds[ikey].cell_methods):
                             self.check_result[ikey]["cell_methods"].add(ResultCode.ERROR,
                                                                         "The variable name indicates a " +
                                                                         "temporal aggregation. This must be given by cell_methods: " +
                                                                         "'time: " + this_agg_cf + "'.")
 
                 # Check ancillary_variables attribute
-                if "ancillary_variables" in self.ds[ikey].attrs.keys():
-                    anc_var = self.ds[ikey].attrs["ancillary_variables"].split(" ")
+                if "ancillary_variables" in self.ds[ikey].attrs:
+                    anc_var = self.ds[ikey].ancillary_variables.split(" ")
                     for i in anc_var:
                         if i not in self.ds:
                             self.check_result[ikey]["ancillary_variables"].add(ResultCode.ERROR,
@@ -982,7 +1008,7 @@ class UC2Data():
                                                                                            True, allowed_types=str))
 
                 # Check bounds attribute
-                if "bounds" in self.ds[ikey].attrs.keys():
+                if "bounds" in self.ds[ikey].attrs:
                     if ikey + "_bounds" not in self.ds:
                         self.check_result[ikey]["bounds"].add(ResultCode.ERROR,
                                                               "Expected variable '" + ikey + "_bounds' not found.")
@@ -1091,7 +1117,8 @@ class UC2Data():
                     self.check_result["campaign"].add(ResultCode.ERROR,
                                                       "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx")
 
-    def get_filename(self):
+    @cached_property
+    def filename(self):
         attrs = ["campaign", "location", "site", "acronym", "data_content", "origin_time", "version"]
         vals = list()
 
@@ -1100,7 +1127,8 @@ class UC2Data():
 
         for i in attrs:
             if not self.check_result[i]:
-                raise Exception("Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity tests.")
+                raise Exception(
+                    "Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity tests.")
 
             if i == "origin_time":
                 vals.append(self.ds.attrs[i][: 10].replace("-", ""))
@@ -1110,12 +1138,11 @@ class UC2Data():
                 vals.append(self.ds.attrs[i].replace("-", "_"))
 
         filename = "_".join(vals) + ".nc"
-        self.filename = filename
         return filename
 
     def geo2UTM(self, x, y):
 
-        utm = pyproj.CRS(self.ds["crs"].attrs["epsg_code"].lower(), preserve_units=False)
+        utm = pyproj.CRS(self.ds["crs"].epsg_code.lower(), preserve_units=False)
         geo = pyproj.CRS("epsg:4258")
 
         return pyproj.transform(geo, utm, y, x)
@@ -1155,7 +1182,7 @@ def check_person_field(string, attrname):
         i_s = i.split(',')
         if not len(i_s) in [2, 3]:
             return CheckResult(ResultCode.ERROR,
-                               "Global attribute '" + attrname + "': Perons must be given as last_name, first_name[, email]")
+                               "Global attribute '" + attrname + "': Persons must be given as last_name, first_name[, email]")
         if len(i_s) == 3:
             if re.fullmatch(r"[^@]+@[^@]+\.[^@]+", i_s[2]) is None:
                 return CheckResult(ResultCode.ERROR, "Global attribute '" + attrname + "': " + i_s[
