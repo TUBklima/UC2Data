@@ -22,8 +22,11 @@ class TestCheckResult(unittest.TestCase):
             data = UC2Data(fn)
             data.uc2_check()
             self.assertTrue(data.check_result)
-            warn = data.check_result.warnings()
+            self.assertTrue(len(data.check_result.errors) == 0)
+            warn = data.check_result.warnings
             # TODO: Check that no warnings (currently there is one in origin lon/lat vs x/y in timeSeries.nc
+
+            self.assertTrue(type(data.filename) == str)
 
     def test_nonsense_fails(self):
         fn = self.file_dir + "nonsense.nc"

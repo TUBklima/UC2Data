@@ -45,7 +45,6 @@ class UC2Data():
                 "long_name": row[0],
                 "standard_name": row[1]
             }
-    allowed_data_contents.extend(allowed_variables.keys())
 
     allowed_institutions = []
     allowed_acronyms = []
@@ -145,6 +144,8 @@ class UC2Data():
 
         # TODO: If all variables have cell_methods with time:point then no time_bounds (and bounds attribute)
         # TODO: If all variables have cell_methods with z:point then no z_bounds (and bounds attribute)
+        # TODO: parse cell_methods more nicely: allow "lat: time: lon: mean over years z: sum"
+        #       - check if dims have bounds
 
         ###
         # Check geo vars
@@ -181,9 +182,9 @@ class UC2Data():
         for i_coord in coord_list:
             if all(elem in self.ds.variables for elem in i_coord):
                 if all(self.check_result[x] for x in i_coord):
-                    self.check_result["_".join(i_coord)].add(self.check_geo_vars(*i_coord))
+                    self.check_result["_".join(i_coord)].add(self._check_geo_vars(*i_coord))
 
-    def check_geo_vars(self, lon_name, lat_name, eutm_name, nutm_name):
+    def _check_geo_vars(self, lon_name, lat_name, eutm_name, nutm_name):
 
         x = self.ds[lon_name].values.flatten()
         y = self.ds[lat_name].values.flatten()
@@ -281,7 +282,7 @@ class UC2Data():
                                            dims=dims, must_be_sorted_along=sort_along, decrease_sort_allowed=True,
                                            fill_allowed=fill_allowed))
 
-        if out["variable"]: # if no error yet
+        if out["variable"]:  # if no error yet
 
             if xy in ["x", "xs", "y", "ys", "xu", "yv"]:
                 long_n = "distance to origin in " + xy[0] + "-direction"
@@ -536,8 +537,8 @@ class UC2Data():
             time_dim_name = "ntime"
         else:
             if "ncol" in self.ds.dims:  # pixel-based surfaces
-                pass  # TODO: Wird es erlaubt, pixel ohne time anzulegen?
-            else: # is grid
+                pass # TODO: do anything?
+            else:  # is grid
                 time_dims = ("time",)
                 time_dim_name = "time"
 
@@ -557,7 +558,7 @@ class UC2Data():
 
         # Check that LTO time series have minimum time step of 30 min.
         if self.is_lto:
-            diff_ok = self.ds["time"].diff(time_dim_name) >= 1800 # is difference ok?
+            diff_ok = self.ds["time"].diff(time_dim_name) >= 1800  # is difference ok?
             # add 1 column to diff_ok because diff is one column shorter than time variable
             if self.ds["time"].ndim > 1:
                 add_to = numpy.ones((diff_ok.shape[0], 1), dtype=bool)
@@ -565,8 +566,9 @@ class UC2Data():
             else:
                 add_to = numpy.array([True])
                 diff_ok = numpy.concatenate((add_to, diff_ok))
-            is_valid = numpy.not_equal(self.ds["time"].values, -9999) # -9999 is excluded from diff check
-            if numpy.any(numpy.logical_and(numpy.logical_not(diff_ok), is_valid)): # if diff not okay and not -9999 -> error
+            is_valid = numpy.not_equal(self.ds["time"].values, -9999)  # -9999 is excluded from diff check
+            if numpy.any(
+                    numpy.logical_and(numpy.logical_not(diff_ok), is_valid)):  # if diff not okay and not -9999 -> error
                 self.check_result.add(ResultCode.ERROR, "Minimum time step in LTO data is 30 minutes")
 
         if self.check_result["time"]["variable"]:
@@ -672,7 +674,9 @@ class UC2Data():
                                                                                 allowed_values=6378137))
             self.check_result["crs"]["inverse_flattening"].add(self.check_var_attr("crs", "inverse_flattening", True,
                                                                                    allowed_types=float,
-                                                                                   allowed_range=[298.257222101-0.0001, 298.257222101+0.0001]))
+                                                                                   allowed_range=[
+                                                                                       298.257222101 - 0.0001,
+                                                                                       298.257222101 + 0.0001]))
             self.check_result["crs"]["longitude_of_prime_meridian"].add(
                 self.check_var_attr("crs", "longitude_of_prime_meridian",
                                     True,
@@ -681,11 +685,12 @@ class UC2Data():
             self.check_result["crs"]["longitude_of_central_meridian"].add(
                 self.check_var_attr("crs", "longitude_of_central_meridian",
                                     True, allowed_types=[int, float],
-                                    allowed_values=[3, 9, 15])) # TODO: this could lead to comparison error if 3.000001 is set as float
+                                    allowed_values=[3, 9,
+                                                    15]))  # TODO: this could lead to comparison error if 3.000001 is set as float
             self.check_result["crs"]["scale_factor_at_central_meridian"].add(
                 self.check_var_attr("crs", "scale_factor_at_central_meridian",
                                     True, allowed_types=[int, float],
-                                    allowed_range=[0.9996-0.0001, 0.9996+0.0001]))
+                                    allowed_range=[0.9996 - 0.0001, 0.9996 + 0.0001]))
             self.check_result["crs"]["latitude_of_projection_origin"].add(
                 self.check_var_attr("crs", "latitude_of_projection_origin",
                                     True, allowed_types=[int, float],
@@ -763,7 +768,6 @@ class UC2Data():
         data_content_var_names = list()
         dont_check = ["station_h", "crs", "vrs", "height"]
         known_coordinates = ["station_name", "traj_name",
-                             "height",
                              "z", "zw", "zs",
                              "x", "xu", "xs",
                              "y", "yv", "ys",
@@ -797,14 +801,14 @@ class UC2Data():
             if ikey in dont_check:
                 continue
             is_normal = ikey in self.allowed_variables
-            is_agg = ikey in [a + "_" + b for a in self.allowed_variables for b in
-                              self.allowed_aggregations]
+            is_agg_name = ikey in [a + "_" + b for a in self.allowed_variables for b in
+                                   self.allowed_aggregations]
             is_bounds = ikey.endswith("_bounds")
             is_bands = ikey.startswith("bands_") and not is_bounds
             is_ancillary = ikey.startswith("ancillary_") and not is_bounds
             is_coordinate = ikey in existing_coordinates
 
-            if not any([is_normal, is_agg, is_bounds, is_bands, is_ancillary, is_coordinate]):
+            if not any([is_normal, is_agg_name, is_bounds, is_bands, is_ancillary, is_coordinate]):
                 self.check_result[ikey].add(ResultCode.ERROR, "'" + ikey + "' is not a supported variable name.")
                 continue
 
@@ -860,15 +864,17 @@ class UC2Data():
                             main_var = self.ds[tmpKey]
                             if main_var.dims != self.ds[ikey].dims:
                                 self.check_result.add(ResultCode.ERROR, "Dimensions of ancillary variable '" +
-                                                      ikey + "' ("+str(self.ds[ikey].dims)+") must be the same "+
-                                "as the referencing variable '" + tmpKey + "' ("+str(main_var.dims)+")")
+                                                      ikey + "' (" + str(self.ds[ikey].dims) + ") must be the same " +
+                                                      "as the referencing variable '" + tmpKey + "' (" + str(
+                                    main_var.dims) + ")")
 
             elif is_coordinate:
-                pass # TODO: Check coordinates? azimuth etc could be 0-360
+                # TODO: actually we may not pass! E.g., time must go through bounds check below!
+                pass  # TODO: Check coordinates? azimuth etc could be 0-360
             else:
                 if is_normal:
                     expected_data_content = ikey
-                elif is_agg:
+                elif is_agg_name:
                     expected_data_content = "_".join(ikey.split("_")[:-1])
 
                 if expected_data_content not in data_content_var_names:
@@ -904,8 +910,8 @@ class UC2Data():
                                                                    str(coords_in_file_not_in_var))
                     if len(coords_in_var_not_in_file) != 0:
                         self.check_result[ikey]["coordinates"].add(ResultCode.ERROR,
-                                                                   "variable attribute 'coordinates' contains a reference "+
-                                                                   "to a coordinate that is not found in file: "+
+                                                                   "variable attribute 'coordinates' contains a reference " +
+                                                                   "to a coordinate that is not found in file: " +
                                                                    str(coords_in_var_not_in_file))
                 self.check_result[ikey]["grid_mapping"].add(
                     self.check_var_attr(ikey, "grid_mapping", True, allowed_types=str,
@@ -940,30 +946,24 @@ class UC2Data():
                 self.check_result[ikey]["instrument_sn"].add(self.check_var_attr(ikey, "instrument_sn", False,
                                                                                  allowed_types=str))
 
-                # Check cell_methods
-                if is_agg:
-                    self.check_result[ikey]["cell_methods"].add(
-                        self.check_var_attr(ikey, "cell_methods", True, allowed_types=str))
-                    if self.check_result[ikey]["cell_methods"]:
-                        this_agg_short = ikey.split("_")[-1]
-                        this_agg_cf = self.allowed_aggregations[this_agg_short]
-                        if not re.match(r".*?\btime\b( )?:( )?" + re.escape(this_agg_cf) + r"\b",
-                                        self.ds[ikey].cell_methods):
-                            self.check_result[ikey]["cell_methods"].add(ResultCode.ERROR,
-                                                                        "The variable name indicates a " +
-                                                                        "temporal aggregation. This must be given by cell_methods: " +
-                                                                        "'time: " + this_agg_cf + "'.")
+                # check cell_methods if variable has name xyz_method
+                if is_agg_name:
+                    self.check_result[ikey]["cell_methods"].add(self._check_cell_methods_agg_varname(ikey))
+
+                # check cell_methods if cell_methods in variable attributes
+                if "cell_methods" in self.ds[ikey].attrs:
+                    self.check_result[ikey]["cell_methods"].add(self._check_cell_methods_attribute(ikey, is_agg_name))
 
                 # Check ancillary_variables attribute
                 if "ancillary_variables" in self.ds[ikey].attrs:
                     anc_var = self.ds[ikey].ancillary_variables.split(" ")
+                    self.check_result[ikey]["ancillary_variables"].add(self.check_var_attr(ikey, "ancillary_variables",
+                                                                                           True, allowed_types=str))
                     for i in anc_var:
                         if i not in self.ds.variables:
                             self.check_result[ikey]["ancillary_variables"].add(ResultCode.ERROR,
                                                                                "Expected ancillary variable '" +
                                                                                i + "' not found in file.")
-                    self.check_result[ikey]["ancillary_variables"].add(self.check_var_attr(ikey, "ancillary_variables",
-                                                                                           True, allowed_types=str))
 
                 # Check bounds attribute
                 if "bounds" in self.ds[ikey].attrs:
@@ -977,37 +977,42 @@ class UC2Data():
         if len(data_content_var_names) == 0:
             self.check_result.add(ResultCode.ERROR, "No data variable found.")
         elif len(data_content_var_names) == 1:
-            if self.check_result["data_content"]:
-                if self.ds.data_content != data_content_var_names[0]:
-                    self.check_result["data_content"].add(ResultCode.ERROR, "Only one data variable found. '" +
-                                                          data_content_var_names[
-                                                              0] + "'. Expected global attribute 'data_content'" +
-                                                          " to be '" + data_content_var_names[0] + "'.")
+            if self.check_result["data_content"] and self.ds.data_content != data_content_var_names[0]:
+                self.check_result["data_content"].add(ResultCode.ERROR, "Only one data variable found. '" +
+                                                      data_content_var_names[0] +
+                                                      "'. Expected global attribute 'data_content'" +
+                                                      " to be '" + data_content_var_names[0] + "'.")
+        else:
+            if self.check_result["data_content"] and self.ds.data_content not in self.allowed_data_contents:
+                self.check_result["data_content"].add(ResultCode.ERROR, "Multiple data variables found. "
+                                                                        "In this case only one of the allowed"
+                                                                        "data_content variable categories must be"
+                                                                        "used. You used '" + self.ds.data_content + "'.")
 
     def check_all_glob_attr(self):
         self.check_result["title"].add(self.check_glob_attr("title", True, str))
-        self.check_result["data_content"].add(self.check_glob_attr("data_content", True, str,
-                                                                   allowed_values=UC2Data.allowed_data_contents,
-                                                                   max_strlen=16))
+        self.check_result["data_content"].add(
+            self.check_glob_attr("data_content", True, str,
+                                 allowed_values=UC2Data.allowed_data_contents + list(UC2Data.allowed_variables.keys()),
+                                 max_strlen=16))
         self.check_result["source"].add(self.check_glob_attr("source", True, str))
-        self.check_result["version"].add(self.check_glob_attr("version", True,
-                                                              int,
-                                                              allowed_values=list(
-                                                                  range(1,
-                                                                        1000))))  # TODO: This is going to be checked in DMS
+        self.check_result["version"].add(self.check_glob_attr("version", True, int, allowed_values=list(
+            range(1, 1000))))  # TODO: This is going to be checked in DMS
         self.check_result["Conventions"].add(self.check_glob_attr("Conventions", True, str, allowed_values=["CF-1.7"]))
-        self.check_result["dependencies"].add(self.check_glob_attr("dependencies", True,
-                                                                   str))  # TODO: This is going to be checked by DMS
+        self.check_result["dependencies"].add(
+            self.check_glob_attr("dependencies", True, str))  # TODO: This is going to be checked by DMS
         self.check_result["history"].add(self.check_glob_attr("history", True, str))
         self.check_result["references"].add(self.check_glob_attr("references", True, str))
         self.check_result["comment"].add(self.check_glob_attr("comment", True, str))
         self.check_result["keywords"].add(self.check_glob_attr("keywords", True, str))
         self.check_result["licence"].add(
             self.check_glob_attr("licence", True, str, allowed_values=UC2Data.allowed_licences))
-        self.check_result["creation_time"].add(self.check_glob_attr("creation_time", True, str,
-                                                                    regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
-        self.check_result["origin_time"].add(self.check_glob_attr("origin_time", True, str,
-                                                                  regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
+        self.check_result["creation_time"].add(
+            self.check_glob_attr("creation_time", True, str,
+            regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
+        self.check_result["origin_time"].add(
+            self.check_glob_attr("origin_time", True, str,
+            regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
         self.check_result["origin_lon"].add(self.check_glob_attr("origin_lon", True, float,
                                                                  allowed_range=[-180, 180]))
         self.check_result["origin_lat"].add(self.check_glob_attr("origin_lat", True, float,
@@ -1020,13 +1025,13 @@ class UC2Data():
 
         # non-standard checks
 
-        if not self.is_grid:
+        if self.is_grid:
+            self.check_result["featureType"].add(ResultCode.OK)
+        else:
             self.check_result["featureType"].add(self.check_glob_attr("featureType", False, str,
                                                                       allowed_values=self.allowed_featuretypes))
             if not self.check_result["featureType"]:
                 return
-        else:
-            self.check_result["featureType"].add(ResultCode.OK)
 
         self.check_result["origin_z"].add(self.check_glob_attr("origin_z", True, float,
                                                                allowed_values=0 if (not self.is_grid) else None))
@@ -1038,8 +1043,6 @@ class UC2Data():
             if UC2Data.allowed_locations[UC2Data.allowed_sites.index(self.ds.site)] != self.ds.location:
                 self.check_result["site"].add(ResultCode.ERROR, "site '" + self.ds.site +
                                               "' does not match location '" + self.ds.location + "'")
-                self.check_result["location"].add(ResultCode.ERROR, "site '" + self.ds.site +
-                                                  "' does not match location '" + self.ds.location + "'")
 
         self.check_result["institution"].add(
             self.check_glob_attr("institution", True, str, allowed_values=UC2Data.allowed_institutions))
@@ -1051,8 +1054,6 @@ class UC2Data():
                     self.ds.acronym):
                 self.check_result["institution"].add(ResultCode.ERROR, "institution '" + self.ds.institution +
                                                      "' does not match acronym '" + self.ds.acronym + "'")
-                self.check_result["acronym"].add(ResultCode.ERROR, "institution '" + self.ds.institution +
-                                                 "' does not match acronym '" + self.ds.acronym + "'")
 
         self.check_result["author"].add(self.check_glob_attr("author", True, str))
         if self.check_result["author"]:
@@ -1067,17 +1068,87 @@ class UC2Data():
                                                                max_strlen=12))
         if self.check_result["campaign"]:
             if self.is_iop:
-                if (len(self.ds.campaign) != 5) or (not int(self.ds.campaign[3:]) in range(1, 100)):
-                    self.check_result["campaign"].add(ResultCode.ERROR,
-                                                      "Global attribute 'campaign': If IOP then string must be IOPxx")
-            elif self.ds.campaign[0:4] in ["VALR", "VALM"]:
-                if (len(self.ds.campaign) != 6) or (not int(self.ds.campaign[4:]) in range(1, 100)):
-                    self.check_result["campaign"].add(ResultCode.ERROR,
-                                                      "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx")
+                try:
+                    if (len(self.ds.campaign) != 5) or (not int(self.ds.campaign[3:]) in range(1, 100)):
+                        self.check_result["campaign"].add(ResultCode.ERROR,
+                                                          "Global attribute 'campaign': If IOP then string must be IOPxx")
+                except ValueError:
+                    self.check_result["campaign"].add(ResultCode.ERROR, "If global attribute 'campaign' starts with "+
+                                                      "'IOP' then numbers must follow.")
+            elif self.ds.campaign.startswith("VALR") or self.ds.campaign.startswith("VALM"):
+                try:
+                    if (len(self.ds.campaign) != 6) or (not int(self.ds.campaign[4:]) in range(1, 100)):
+                        self.check_result["campaign"].add(ResultCode.ERROR,
+                                                          "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx")
+                except ValueError:
+                    self.check_result["campaign"].add(ResultCode.ERROR, "If global attribute 'campaign' starts with " +
+                                                      "'VALM' or 'VALR' then numbers must follow.")
 
+    def _check_cell_methods_agg_varname(self, varname):
+        out = CheckResult(ResultCode.OK)
+        out[varname]["cell_methods"].add(
+            self.check_var_attr(varname, "cell_methods", True, allowed_types=str))
+        if out[varname]["cell_methods"]:
+            this_agg_short = varname.split("_")[-1]
+            this_agg_cf = self.allowed_aggregations[this_agg_short]
+            if not re.match(r".*?\btime\b( )?:( )?" + re.escape(this_agg_cf) + r"\b",
+                            self.ds[varname].cell_methods):
+                out[varname]["cell_methods"].add(ResultCode.ERROR,
+                                                 "The variable name indicates a " +
+                                                 "temporal aggregation. This must be given by cell_methods: " +
+                                                 "'time: " + this_agg_cf + "'.")
+            if not "time_bounds" in self.ds.variables:
+                out[varname]["cell_methods"].add(ResultCode.ERROR,
+                                                 "The variable name indicates a " +
+                                                 "temporal aggregation. Therefore the variable " +
+                                                 "'time_bounds' is needed.")
+        return out
 
+    def _check_cell_methods_attribute(self, varname, is_agg_name):
 
+        out = CheckResult(ResultCode.OK)
 
+        this_cm = self.ds[varname].cell_methods
+        if re.match(r".*?\btime\b( )?:", this_cm):  # contains "time:"?
+            method = re.match(r".*?\btime\b ?: ?([a-zA-Z]+)", this_cm)  # get method string after "time:"
+            if method:
+                method = method.groups()[0].lower()
+                if method == "point" or method == "mean" or method == "sum":
+                    if is_agg_name:
+                        out[varname]["cell_methods"].add(
+                            ResultCode.ERROR, "Variable attribute 'cell_methods' specifies temporal "
+                                              "aggregation '" + method + "'. Variable name must not contain"
+                                                                         " agg_method in this case."
+                        )
+                else:
+                    for iag, ival in self.allowed_aggregations.items():  # get short version of method for variable name
+                        if ival == method:
+                            short_method = iag
+                            break
+                    if not short_method:
+                        out[varname]["cell_methods"].add(
+                            ResultCode.ERROR, "cell_methods contain 'time:" + method + "'. Method is unsupported."
+                        )
+                    else:
+                        if not varname.endswith("_" + short_method):
+                            out[varname]["cell_methods"].add(
+                                ResultCode.ERROR, "cell_method contains 'time:" + method + "'. Variable name should"
+                                                                                           " end with '_" + short_method + "'."
+                            )
+
+                if method != "point":
+                    if not "bounds" in self.ds["time"].attrs:
+                        out[varname]["cell_methods"].add(
+                            ResultCode.ERROR, "Variable '" + varname + "' contains cell methods 'time:...'. A "
+                                                                       "variable 'time_bounds' is needed and variable 'time' must contain attribute "
+                                                                       "'bounds' (='time_bounds')."
+                        )
+
+            else:
+                out[varname]["cell_methods"].add(
+                    ResultCode.ERROR, "Variable attribute 'cell_methods' has unsupported format after 'time: '"
+                )
+        return out
 
     @cached_property
     def filename(self):
@@ -1098,6 +1169,9 @@ class UC2Data():
                 vals.append(str(self.ds.attrs[i]).zfill(3))
             else:
                 vals.append(self.ds.attrs[i].replace("-", "_"))
+                vals.append(self.ds.attrs[i].replace(".", "_"))
+                vals.append(self.ds.attrs[i].replace("/", "_"))
+                vals.append(self.ds.attrs[i].replace("\\", "_"))
 
         filename = "_".join(vals) + ".nc"
         return filename
@@ -1227,10 +1301,8 @@ class CheckResult(OrderedDict):
             if other.result == ResultCode.OK:
                 if len(self.result) == 0:
                     self.result.append(other)
-                elif ResultCode.OK in [i.result for i in self.result]:
-                    return  # We need only one OK per result
                 else:
-                    return  # There are ERRORs in result. => not OK
+                    return  # There are ERRORs in result. => not OK, If OK => stays OK
             else:
                 for i in self.result:
                     if i.result == ResultCode.OK:
@@ -1258,6 +1330,7 @@ class CheckResult(OrderedDict):
         out = "\n".join(out)
         return out
 
+    @property
     def warnings(self):
         out = CheckResult()
         for i in self.result:
@@ -1266,10 +1339,11 @@ class CheckResult(OrderedDict):
 
         for k, v in self.items():
             if v.contains_warnings():
-                out[k].add(v.warnings())
+                out[k].add(v.warnings)
 
         return out
 
+    @property
     def errors(self):
         out = CheckResult()
         for i in self.result:
@@ -1278,9 +1352,10 @@ class CheckResult(OrderedDict):
 
         for k, v in self.items():
             if not v:
-                out[k].add(v.errors())
+                out[k].add(v.errors)
 
         return out
+
 
 def check_type(var, allowed_types):
     all_floats = [float, numpy.float, numpy.float16, numpy.float32, numpy.float64]
