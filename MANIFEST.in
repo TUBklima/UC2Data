@@ -1,1 +1,1 @@
-recursive-include uc2data/resources/*
+recursive-include uc2data/resources *
