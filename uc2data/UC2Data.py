@@ -1330,6 +1330,16 @@ class CheckResult(OrderedDict):
         out = "\n".join(out)
         return out
 
+    def to_file(self, file, full=False):
+        with open(file, "w") as outfile:
+            if full:
+                outfile.write(self.__repr__())
+            else:
+                outfile.write(str(self.warnings))
+                outfile.write("\n")
+                outfile.write(str(self.errors))
+
+
     @property
     def warnings(self):
         out = CheckResult()
