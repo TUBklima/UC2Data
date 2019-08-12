@@ -1,7 +1,9 @@
 antlr4-python3-runtime==4.7.2
 backcall==0.1.0
+cached-property==1.5.1
 cftime==1.0.3.4
 colorama==0.4.1
+coverage==4.5.4
 Cython==0.29.10
 decorator==4.4.0
 ipython==7.6.0
