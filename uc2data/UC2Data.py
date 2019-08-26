@@ -218,7 +218,7 @@ class UC2Data():
     def check_xy(self, xy):
 
         # is xy a box border?
-        if xy in ["xu", "yv", "zw", "Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM",
+        if xy in ["xu", "yv", "zw", "Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM", #TODO: this function is never called with "zw". Do we check it anywhere?
                   "lonu", "lonv", "latu", "latv"]:
 
             fill_allowed = False  # grid coordinate variables may not have fill values
@@ -593,6 +593,7 @@ class UC2Data():
             # bounds attributes are checked below together with other variables.
 
         # z
+        # TODO: z does not have to be there (e.g. T2 model output)
 
         if self.is_grid:
             z_dims = ("z",)
