@@ -23,6 +23,48 @@ sites_file = respath / "sites.txt"
 
 
 class UC2Data():
+    """
+    This object represents data of NetCDF files following the UC2 data standard.
+
+    Attributes
+    ----------
+    path : str or pathlib.Path
+        The path of the file that is to be/was read
+    check_result : UC2Data.CheckResult
+        The results of a call to UC2Data.uc2_check
+    ds : xarray.Dataset
+        The representation of the data
+
+    Methods
+    -------
+    uc2_check()
+        runs the check for conformity with UC2 data standard
+    _check_coordinates()
+        checks coordinates according to UC2 data standard (only called internally)
+    _check_geo_vars(lon_name, lat_name, eutm_name, nutm_name)
+        checks coordinates according to UC2 data standard (only called internally)
+    check_xy(xy)
+        checks horizontal spatial reference variables according to UC2 data standard
+    check_var(varname, varname, must_exist, allowed_types=None, allowed_range=None, dims=None, must_be_sorted_along=None, decrease_sort_allowed=True, fill_allowed=True)
+        checks NetCDF variable for requested properties
+    check_var_attr(varname, attrname, must_exist, allowed_types=None, allowed_values=None, regex=None, must_not_exist=None, allowed_range=None)
+        checks NetCDF variable attribute for requested properties
+    check_glob_attr(attrname, must_exist, allowed_types=None, allowed_values=None, max_strlen=None, regex=None, allowed_range=None)
+        checks NetCDF global attribute for requested properties
+    check_dims()
+        checks_NetCDF dimensions according to UC2 data standard
+    _check_all_vars()
+        combines the variable checks of uc2_check method (only called internally)
+    check_all_glob_attr()
+        combines the global attribute checks of uc2_check method
+    _check_cell_methods_agg_varname(varname)
+        checks whether the varname matches the implications of cell_methods attribute (only called internally)
+    _check_cell_methods_attribute(varname, is_agg_name)
+        checks the cell_methods variable attribute (only called internally)
+    geo2UTM(x,y)
+        converts geographic longitude / latitude to UTM coordinates
+    """
+
     allowed_featuretypes = ["timeSeries", "timeSeriesProfile", "trajectory"]
 
     allowed_aggregations = dict()
@@ -74,6 +116,14 @@ class UC2Data():
     ]
 
     def __init__(self, path):
+        """
+        returns a UC2Data object
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            The path of the file to be read
+        """
 
         self.path = path
         self.check_result = None
@@ -118,7 +168,43 @@ class UC2Data():
         else:
             return "None"
 
+    @cached_property
+    def filename(self):
+        attrs = ["campaign", "location", "site", "acronym", "data_content", "origin_time", "version"]
+        vals = list()
+
+        if self.check_result is None:
+            self.uc2_check()
+
+        for i in attrs:
+            if not self.check_result[i]:
+                raise Exception(
+                    "Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity tests.")
+
+            if i == "origin_time":
+                vals.append(self.ds.attrs[i][: 10].replace("-", ""))
+            elif i == "version":
+                vals.append(str(self.ds.attrs[i]).zfill(3))
+            else:
+                vals.append(self.ds.attrs[i].replace("-", "_"))
+                vals.append(self.ds.attrs[i].replace(".", "_"))
+                vals.append(self.ds.attrs[i].replace("/", "_"))
+                vals.append(self.ds.attrs[i].replace("\\", "_"))
+
+        filename = "_".join(vals) + ".nc"
+        return filename
+
     def uc2_check(self):
+        """
+        Performs all checks of conformity to the UC2 data standard.
+
+        The results will be stored in the attribute check_result.
+
+        Returns
+        -------
+        None
+
+        """
 
         self.check_result = CheckResult()
 
@@ -158,6 +244,16 @@ class UC2Data():
                                                           "because of error in 'crs' variable.")
 
     def _check_coordinates(self):
+        """
+        updates the attribute check_result with results of coordinates.
+
+        Checks whether lat/lon matches UTM coordinates.
+
+        Returns
+        -------
+        None
+
+        """
 
         # Check if origin_lon/origin_lat matches origin_x/origin_y
         if all([self.check_result["origin_lon"], self.check_result["origin_lat"], self.check_result["origin_x"],
@@ -185,6 +281,26 @@ class UC2Data():
                     self.check_result["_".join(i_coord)].add(self._check_geo_vars(*i_coord))
 
     def _check_geo_vars(self, lon_name, lat_name, eutm_name, nutm_name):
+        """
+        Checks consistency of horizontal spatial variables
+
+        Parameters
+        ----------
+        lon_name : str
+            variable name for the longitudes
+        lat_name : str
+            variable name for the latitudes
+        eutm_name : str
+            variable name for the UTM eastings
+        nutm_name : str
+            variable name for the UTM northings
+
+
+        Returns
+        -------
+        UC2Data.CheckResult: The check results concerning these checks.
+
+        """
 
         x = self.ds[lon_name].values.flatten()
         y = self.ds[lat_name].values.flatten()
@@ -216,6 +332,19 @@ class UC2Data():
         return compare_UTMs(eutm, nutm, E_UTM[~E_UTMfill], N_UTM[~N_UTMfill])
 
     def check_xy(self, xy):
+        """
+        Checks the spatial reference variable for consistency with the UC2 data standard.
+
+        Parameters
+        ----------
+        xy : str
+            the name of the variable to be checked
+
+        Returns
+        -------
+        UC2Data.CheckResult: The result of these checks
+
+        """
 
         # is xy a box border?
         if xy in ["xu", "yv", "zw", "Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM", #TODO: this function is never called with "zw". Do we check it anywhere?
@@ -319,8 +448,42 @@ class UC2Data():
 
         self.check_result[xy].add(out)
 
-    def check_var(self, varname, must_exist, allowed_types=None, allowed_range=None, dims=None,
+    def check_var(self, varname, must_exist, allowed_types=None, allowed_range:list=None, dims=None,
                   must_be_sorted_along=None, decrease_sort_allowed=True, fill_allowed=True):
+        """
+        Checks a NetCDF variable for requested properties
+
+        Parameters
+        ----------
+        varname : str
+            name of the variable to check
+        must_exist : bool
+            whether the variable needs to be present
+        allowed_types : Union[str, Iterable], optional
+            str or list of types that are allowed. If float then any Python/numpy float allowed. If int then any
+            Python/numpy int allowed
+        allowed_range : list, optional
+            two-element list as [min, max] of allowed range
+        dims : Union[str, list, tuple], optional
+            The name(s) of the required dimension(s).
+            If str: only this dimension allowed
+            If list of strings: only these dimensions in the specified order allowed
+            If list of tuples: Any of the dimension combinations as given by tuples allowed
+            If tuple of strings: Only these dimensions allowed
+            Empty tuple: Must have no dimensions (=scalar)
+        must_be_sorted_along : str, optional
+            Name of a dimension along which the data must be sorted (ignoring fill values)
+        decrease_sort_allowed : bool, optional
+            Whether variable may be sorted in descending order
+        fill_allowed : bool, optional
+            whether the variable may contain fill values
+
+        Returns
+        -------
+        UC2Data.CheckResult: the results of the variable check
+
+        """
+
         exists = varname in self.ds.variables
         result = CheckResult(ResultCode.OK)
 
@@ -1151,32 +1314,6 @@ class UC2Data():
                 )
         return out
 
-    @cached_property
-    def filename(self):
-        attrs = ["campaign", "location", "site", "acronym", "data_content", "origin_time", "version"]
-        vals = list()
-
-        if self.check_result is None:
-            self.uc2_check()
-
-        for i in attrs:
-            if not self.check_result[i]:
-                raise Exception(
-                    "Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity tests.")
-
-            if i == "origin_time":
-                vals.append(self.ds.attrs[i][: 10].replace("-", ""))
-            elif i == "version":
-                vals.append(str(self.ds.attrs[i]).zfill(3))
-            else:
-                vals.append(self.ds.attrs[i].replace("-", "_"))
-                vals.append(self.ds.attrs[i].replace(".", "_"))
-                vals.append(self.ds.attrs[i].replace("/", "_"))
-                vals.append(self.ds.attrs[i].replace("\\", "_"))
-
-        filename = "_".join(vals) + ".nc"
-        return filename
-
     def geo2UTM(self, x, y):
 
         utm = pyproj.CRS(self.ds["crs"].epsg_code.lower(), preserve_units=False)
@@ -1393,3 +1530,4 @@ def check_type(var, allowed_types):
                 allowed_types.append(this)
 
     return this_type in allowed_types
+
