@@ -22,7 +22,7 @@ institutions_file = respath / "institutions.txt"
 sites_file = respath / "sites.txt"
 
 
-class UC2Data():
+class UC2Data:
     """
     This object represents data of NetCDF files following the UC2 data standard.
 
@@ -61,7 +61,7 @@ class UC2Data():
         checks whether the varname matches the implications of cell_methods attribute (only called internally)
     _check_cell_methods_attribute(varname, is_agg_name)
         checks the cell_methods variable attribute (only called internally)
-    geo2UTM(x,y)
+    geo2utm(x,y)
         converts geographic longitude / latitude to UTM coordinates
     """
 
@@ -258,10 +258,10 @@ class UC2Data():
         # Check if origin_lon/origin_lat matches origin_x/origin_y
         if all([self.check_result["origin_lon"], self.check_result["origin_lat"], self.check_result["origin_x"],
                 self.check_result["origin_y"]]):
-            e_orig_ll, n_orig_ll = self.geo2UTM(self.ds.origin_lon, self.ds.origin_lat)
+            e_orig_ll, n_orig_ll = self.geo2utm(self.ds.origin_lon, self.ds.origin_lat)
 
             self.check_result["origin_coords_match"].add(
-                compare_UTMs(e_orig_ll, n_orig_ll, self.ds.origin_x, self.ds.origin_y))
+                compare_utms(e_orig_ll, n_orig_ll, self.ds.origin_x, self.ds.origin_y))
         else:
             self.check_result["origin_coords_match"].add(
                 ResultCode.ERROR, "Cannot check if origin_lon/lat matches origin_x/y because of error "
@@ -306,30 +306,30 @@ class UC2Data():
         y = self.ds[lat_name].values.flatten()
         if self.ds[lon_name].dims != self.ds[eutm_name].dims:  # "inflate" array to y,x dims
             # this case is for un-rotated grid with E_UTM(x), N_UTM(y), lon(y,x), lat(y,x)
-            E_UTM = numpy.tile(self.ds[eutm_name].values, (self.ds[nutm_name].shape[0], 1))
-            N_UTM = numpy.tile(self.ds[nutm_name].values, (self.ds[eutm_name].shape[0], 1))
-            N_UTM = numpy.transpose(N_UTM)
+            e_utm = numpy.tile(self.ds[eutm_name].values, (self.ds[nutm_name].shape[0], 1))
+            n_utm = numpy.tile(self.ds[nutm_name].values, (self.ds[eutm_name].shape[0], 1))
+            n_utm = numpy.transpose(n_utm)
         else:
-            E_UTM = self.ds[eutm_name].values
-            N_UTM = self.ds[nutm_name].values
-        E_UTM = E_UTM.flatten()
-        N_UTM = N_UTM.flatten()
+            e_utm = self.ds[eutm_name].values
+            n_utm = self.ds[nutm_name].values
+        e_utm = e_utm.flatten()
+        n_utm = n_utm.flatten()
 
         # Check if fill values are at the same spot and remove them prior to comparison
         xfill = x == -9999
         yfill = y == -9999
-        E_UTMfill = E_UTM == -9999
-        N_UTMfill = N_UTM == -9999
+        e_ut_mfill = e_utm == -9999
+        n_ut_mfill = n_utm == -9999
         if not numpy.array_equal(xfill, yfill) or \
-                not numpy.array_equal(xfill, E_UTMfill) or \
-                not numpy.array_equal(xfill, N_UTMfill):
+                not numpy.array_equal(xfill, e_ut_mfill) or \
+                not numpy.array_equal(xfill, n_ut_mfill):
             return CheckResult(ResultCode.ERROR, "Coordinates have fill values at different indices: " +
                                ", ".join([lon_name, lat_name, eutm_name, nutm_name]) +
                                ". They should be parallel.")
 
-        eutm, nutm = self.geo2UTM(x[~xfill], y[~yfill])
+        eutm, nutm = self.geo2utm(x[~xfill], y[~yfill])
 
-        return compare_UTMs(eutm, nutm, E_UTM[~E_UTMfill], N_UTM[~N_UTMfill])
+        return compare_utms(eutm, nutm, e_utm[~e_ut_mfill], n_utm[~n_ut_mfill])
 
     def check_xy(self, xy):
         """
@@ -347,7 +347,7 @@ class UC2Data():
         """
 
         # is xy a box border?
-        if xy in ["xu", "yv", "zw", "Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM", #TODO: this function is never called with "zw". Do we check it anywhere?
+        if xy in ["xu", "yv", "zw", "Eu_UTM", "Ev_UTM", "Nu_UTM", "Nv_UTM",  # TODO: this function is never called with "zw". Do we check it anywhere?
                   "lonu", "lonv", "latu", "latv"]:
 
             fill_allowed = False  # grid coordinate variables may not have fill values
@@ -437,7 +437,7 @@ class UC2Data():
                 axis = None
                 units = "m"
 
-            out["standard_name"].add(self.check_var_attr(xy, "standard_name", not xy in ["x", "xs", "y", "ys"],
+            out["standard_name"].add(self.check_var_attr(xy, "standard_name", xy not in ["x", "xs", "y", "ys"],
                                                          must_not_exist=xy in ["x", "xs", "y", "ys"],
                                                          allowed_values=standard_n))
             out["long_name"].add(self.check_var_attr(xy, "long_name", True, allowed_types=str,
@@ -448,7 +448,7 @@ class UC2Data():
 
         self.check_result[xy].add(out)
 
-    def check_var(self, varname, must_exist, allowed_types=None, allowed_range:list=None, dims=None,
+    def check_var(self, varname, must_exist, allowed_types=None, allowed_range: list = None, dims=None,
                   must_be_sorted_along=None, decrease_sort_allowed=True, fill_allowed=True):
         """
         Checks a NetCDF variable for requested properties
@@ -519,7 +519,7 @@ class UC2Data():
                 if type(dims[i_dim]) == str:  # if dims is str within list make tuple in place
                     dims[i_dim] = (dims[i_dim],)
 
-            if not this_var.dims in dims:
+            if this_var.dims not in dims:
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong dimensions. Expected: " +
                            str(dims) + ". Found: " + str(this_var.dims))
 
@@ -554,8 +554,38 @@ class UC2Data():
 
         return result
 
-    def check_var_attr(self, varname, attrname, must_exist, allowed_types=None, allowed_values=None, regex=None,
-                       must_not_exist=None, allowed_range=None):
+    def check_var_attr(self, varname, attrname, must_exist, allowed_types=None, allowed_range=None,
+                       allowed_values=None, regex=None, must_not_exist=None):
+
+        """
+        Checks a NetCDF variable attributes for requested properties
+
+        Parameters
+        ----------
+        varname : str
+            name of the variable to check
+        attrname : str
+            name of the variable attribute to check
+        must_exist : bool
+            whether the variable attribute needs to be present
+        allowed_types : Union[str, Iterable], optional
+            str or list of types that are allowed. If float then any Python/numpy float allowed. If int then any
+            Python/numpy int allowed
+        allowed_range : list, optional
+            two-element list as [min, max] of allowed range
+        allowed_values : list
+            list of values that are allowed. The actual attribute value must be within the list.
+        regex : str
+            regular expression that the attribute must match
+        must_not_exist : bool
+            if True, the variable attribute must not be defined
+
+        Returns
+        -------
+        UC2Data.CheckResult: the results of the variable attribute check
+
+        """
+
         exists = attrname in self.ds[varname].attrs
         result = CheckResult(ResultCode.OK)
         if not exists:
@@ -581,7 +611,7 @@ class UC2Data():
         if allowed_values is not None:
             if type(allowed_values) != list:
                 allowed_values = [allowed_values]
-            if not this_value in allowed_values:
+            if this_value not in allowed_values:
                 if len(allowed_values) == 1:
                     result.add(ResultCode.ERROR,
                                "Variable '" + varname + "': Required variable attribute '" + attrname + "'  has wrong value. Should be " +
@@ -605,8 +635,36 @@ class UC2Data():
                            "Found value: " + str(this_value))
         return result
 
-    def check_glob_attr(self, attrname, must_exist, allowed_types=None, allowed_values=None,
-                        max_strlen=None, regex=None, allowed_range=None):
+    def check_glob_attr(self, attrname, must_exist, allowed_types=None, allowed_range=None, allowed_values=None,
+                        max_strlen=None, regex=None):
+
+        """
+        Checks a NetCDF global attributes for requested properties
+
+        Parameters
+        ----------
+        attrname : str
+            name of the global attribute to check
+        must_exist : bool
+            whether the global attribute needs to be present
+        allowed_types : Union[str, Iterable], optional
+            str or list of types that are allowed. If float then any Python/numpy float allowed. If int then any
+            Python/numpy int allowed
+        allowed_range : list, optional
+            two-element list as [min, max] of allowed range
+        allowed_values : list
+            list of values that are allowed. The actual attribute value must be within the list.
+        max_strlen : int
+            if the attribute is of type str then the length must not be larger than max_strlen
+        regex : str
+            regular expression that the attribute must match
+
+        Returns
+        -------
+        UC2Data.CheckResult: the results of the global attribute check
+
+        """
+
         exists = attrname in self.ds.attrs
         result = CheckResult(ResultCode.OK)
 
@@ -633,7 +691,7 @@ class UC2Data():
         if allowed_values is not None:
             if type(allowed_values) != list:
                 allowed_values = [allowed_values]
-            if not this_value in allowed_values:
+            if this_value not in allowed_values:
                 if len(allowed_values) == 1:
                     result.add(ResultCode.ERROR,
                                "Global attribute '" + attrname + "' has wrong value. " +
@@ -663,6 +721,19 @@ class UC2Data():
         return result
 
     def check_dims(self):
+
+        """
+        Checks dimensions within the NetCDF file for consistency
+
+        This check is called internally by the uc2_check method.
+        The check_result attribute of the UC2Data object are updated.
+
+        Returns
+        -------
+        None
+
+        """
+
         tmp = netCDF4.Dataset(self.path)
         if any([x.isunlimited() for k, x in tmp.dimensions.items()]):
             self.check_result["unlimited_dim"].add(ResultCode.ERROR, "Unlimited dimensions not supported.")
@@ -677,6 +748,19 @@ class UC2Data():
                                                             "Dimension 'max_name_len' must have size of 32.")
 
     def _check_all_vars(self):
+
+        """
+        Checks variables within the NetCDF file for consistency
+
+        This check is called internally by the uc2_check method and only makes sense within that
+        workflow. This is because check results of previous checks are required within this method.
+        The check_result attribute of the UC2Data object are updated.
+
+        Returns
+        -------
+        None
+
+        """
 
         # vrs
 
@@ -700,7 +784,7 @@ class UC2Data():
             time_dim_name = "ntime"
         else:
             if "ncol" in self.ds.dims:  # pixel-based surfaces
-                pass # TODO: do anything?
+                pass  # TODO: do anything?
             else:  # is grid
                 time_dims = ("time",)
                 time_dim_name = "time"
@@ -878,13 +962,13 @@ class UC2Data():
             name = "station_name"
             long_name = "station name"
             dim = "station"
-            id = "timeseries_id"
+            cf_id = "timeseries_id"
         elif self.is_traj:
             check_platform = True
             name = "traj_name"
             long_name = "trajectory name"
             dim = "traj"
-            id = "trajectory_id"
+            cf_id = "trajectory_id"
 
         if check_platform:
             self.check_result[name]["variable"].add(self.check_var(name, True, allowed_types=numpy.dtype("S1"),
@@ -896,7 +980,7 @@ class UC2Data():
                     self.check_var_attr(name, "standard_name", True, allowed_types=str,
                                         allowed_values="platform_name"))
                 self.check_result[name]["cf_role"].add(self.check_var_attr(name, "cf_role", True, allowed_types=str,
-                                                                           allowed_values=id))
+                                                                           allowed_values=cf_id))
 
         if self.is_ts or self.is_tsp:
             self.check_result["station_h"]["variable"].add(self.check_var("station_h", True,
@@ -984,8 +1068,8 @@ class UC2Data():
                 main_key = ikey.replace("_bounds", "")
                 if main_key not in self.ds.variables:
                     self.check_result[ikey].add(ResultCode.ERROR,
-                                                "Variable '" + ikey + "' seems to be a bounds variable " \
-                                                                      "but there is no main variable (expected '" + \
+                                                "Variable '" + ikey + "' seems to be a bounds variable " 
+                                                                      "but there is no main variable (expected '" +
                                                 main_key + "')")
                 else:
                     self.check_result[main_key].add(self.check_var_attr(main_key, "bounds", True,
@@ -1029,8 +1113,8 @@ class UC2Data():
                             if main_var.dims != self.ds[ikey].dims:
                                 self.check_result.add(ResultCode.ERROR, "Dimensions of ancillary variable '" +
                                                       ikey + "' (" + str(self.ds[ikey].dims) + ") must be the same " +
-                                                      "as the referencing variable '" + tmpKey + "' (" + str(
-                                    main_var.dims) + ")")
+                                                      "as the referencing variable '" + tmpKey + "' (" +
+                                                      str(main_var.dims) + ")")
 
             elif is_coordinate:
                 # TODO: actually we may not pass! E.g., time must go through bounds check below!
@@ -1049,8 +1133,7 @@ class UC2Data():
 
                 # Check obligatory attributes
                 self.check_result[ikey]["long_name"].add(self.check_var_attr(ikey, "long_name", True, allowed_types=str,
-                                                                             allowed_values=
-                                                                             self.allowed_variables[
+                                                                             allowed_values=self.allowed_variables[
                                                                                  expected_data_content][
                                                                                  "long_name"]))
                 self.check_result[ikey]["units"].add(
@@ -1154,6 +1237,18 @@ class UC2Data():
                                                                         "used. You used '" + self.ds.data_content + "'.")
 
     def check_all_glob_attr(self):
+        """
+        Checks all global attributes within the NetCDF file for consistency
+
+        This check is called internally by the uc2_check method.
+        The check_result attribute of the UC2Data object are updated.
+
+        Returns
+        -------
+        None
+
+        """
+
         self.check_result["title"].add(self.check_glob_attr("title", True, str))
         self.check_result["data_content"].add(
             self.check_glob_attr("data_content", True, str,
@@ -1237,7 +1332,7 @@ class UC2Data():
                         self.check_result["campaign"].add(ResultCode.ERROR,
                                                           "Global attribute 'campaign': If IOP then string must be IOPxx")
                 except ValueError:
-                    self.check_result["campaign"].add(ResultCode.ERROR, "If global attribute 'campaign' starts with "+
+                    self.check_result["campaign"].add(ResultCode.ERROR, "If global attribute 'campaign' starts with " +
                                                       "'IOP' then numbers must follow.")
             elif self.ds.campaign.startswith("VALR") or self.ds.campaign.startswith("VALM"):
                 try:
@@ -1249,6 +1344,20 @@ class UC2Data():
                                                       "'VALM' or 'VALR' then numbers must follow.")
 
     def _check_cell_methods_agg_varname(self, varname):
+
+        """
+        Checks whether variable names match their cell_methods attribute
+
+        This check is called internally by the uc2_check method and only makes sense within that
+        workflow. This is because check results of previous checks are required within this method.
+        The check_result attribute of the UC2Data object are updated.
+
+        Returns
+        -------
+        None
+
+        """
+
         out = CheckResult(ResultCode.OK)
         out[varname]["cell_methods"].add(
             self.check_var_attr(varname, "cell_methods", True, allowed_types=str))
@@ -1261,7 +1370,7 @@ class UC2Data():
                                                  "The variable name indicates a " +
                                                  "temporal aggregation. This must be given by cell_methods: " +
                                                  "'time: " + this_agg_cf + "'.")
-            if not "time_bounds" in self.ds.variables:
+            if "time_bounds" not in self.ds.variables:
                 out[varname]["cell_methods"].add(ResultCode.ERROR,
                                                  "The variable name indicates a " +
                                                  "temporal aggregation. Therefore the variable " +
@@ -1269,6 +1378,18 @@ class UC2Data():
         return out
 
     def _check_cell_methods_attribute(self, varname, is_agg_name):
+        """
+        Checks the cell_method attribute of variables within the NetCDF file for consistency
+
+        This check is called internally by the uc2_check method and only makes sense within that
+        workflow. This is because check results of previous checks are required within this method.
+        The check_result attribute of the UC2Data object are updated.
+
+        Returns
+        -------
+        None
+
+        """
 
         out = CheckResult(ResultCode.OK)
 
@@ -1301,7 +1422,7 @@ class UC2Data():
                             )
 
                 if method != "point":
-                    if not "bounds" in self.ds["time"].attrs:
+                    if "bounds" not in self.ds["time"].attrs:
                         out[varname]["cell_methods"].add(
                             ResultCode.ERROR, "Variable '" + varname + "' contains cell methods 'time:...'. A "
                                                                        "variable 'time_bounds' is needed and variable 'time' must contain attribute "
@@ -1314,7 +1435,24 @@ class UC2Data():
                 )
         return out
 
-    def geo2UTM(self, x, y):
+    def geo2utm(self, x, y):
+        """
+        Transforms geographical coordinates (EPSG:4258) to UTM coordinates in the crs of the NetCDF file
+
+        Parameters
+        ----------
+        x : float
+            longitude. Can be numpy or regular python array, python
+            list/tuple or scalar
+        y : float
+            latitude. Can be numpy or regular python array, python
+            list/tuple or scalar
+
+        Returns
+        -------
+        tuple: UTM coordinates
+
+        """
 
         utm = pyproj.CRS(self.ds["crs"].epsg_code.lower(), preserve_units=False)
         geo = pyproj.CRS("epsg:4258")
@@ -1322,7 +1460,29 @@ class UC2Data():
         return pyproj.transform(geo, utm, y, x)
 
 
-def compare_UTMs(e1, n1, e2, n2):
+def compare_utms(e1, n1, e2, n2):
+    """
+    Checks whether pairs of UTM coordinates refer to (roughly) the same location
+
+    A warning is given if coordinate pairs differ by a small distance
+
+    Parameters
+    ----------
+    e1 : float
+        UTM easting(s) of the first point(s). Can be scalar of numpy.array
+    n1 : float
+        UTM northing(s) of the first point(s). Can be scalar of numpy.array
+    e2 : float
+        UTM easting(s) of the second point(s). Can be scalar of numpy.array
+    n2 : float
+        UTM northing(s) of the second point(s). Can be scalar of numpy.array
+
+    Returns
+    -------
+    UC2Data.CheckResult: The result of this check
+
+    """
+
     if not isinstance(e1, numpy.ndarray):
         e1 = [e1]
     if not isinstance(n1, numpy.ndarray):
@@ -1351,6 +1511,27 @@ def compare_UTMs(e1, n1, e2, n2):
 
 
 def check_person_field(string, attrname):
+
+    """
+    Checks whether a string matches the definition of personal details
+
+    personal detail strings must be formated like this:
+    "LastName, FirstName[, email]"
+    Multiple persons are separated with ";"
+
+    Parameters
+    ----------
+    string : str
+        The string to check
+    attrname : str
+        Name of the attribute which contains the string
+
+    Returns
+    -------
+    UC2Data.CheckResult: The result of this check
+
+    """
+
     s = string.split(';')
     for i in s:
         i_s = i.split(',')
@@ -1365,6 +1546,12 @@ def check_person_field(string, attrname):
 
 
 class ResultCode(enum.Enum):
+
+    """
+    This object represents whether a check results in OK, warning or error.
+
+    """
+
     OK = 1
     WARNING = 2
     ERROR = 3
@@ -1372,7 +1559,31 @@ class ResultCode(enum.Enum):
 
 class ResultItem:
 
+    """
+    This object combines the ResultCode class with a message string.
+
+    Attributes
+    ----------
+    result : ResultCode
+        Whether the check was OK or resulted in a warning or error
+    message : str
+        A message for the user
+
+    """
+
     def __init__(self, result: ResultCode = ResultCode.OK, message: str = ""):
+
+        """
+        Creates a ResultItem object
+
+        Parameters
+        ----------
+        result : ResultCode
+            Whether the check was OK or resulted in a warning or error. Default: OK
+        message : str
+            A message for the user. Default: "Test passed."
+        """
+
         self.result = result
         if result == ResultCode.OK:
             if message != "":
@@ -1382,10 +1593,35 @@ class ResultItem:
             self.message = message
 
     def __bool__(self):
+
+        """
+        Checks whether the test passed
+
+        Returns
+        -------
+        True if ResultCode is OK or WARNING, False otherwise
+
+        """
+
         return self.result != ResultCode.ERROR
 
 
 class CheckResult(OrderedDict):
+
+    """
+    This object collects ResultItems in a structured way.
+
+    The ResultItems are structured in a dict-like structure.
+    The tags can be nested. TODO: Keep on documenting here!!!
+
+    Attributes
+    ----------
+    result : ResultCode
+        Whether the check was OK or resulted in a warning or error
+    message : str
+        A message for the user
+
+    """
 
     def __init__(self, *args, **kwargs):
         self.result = list()
@@ -1477,7 +1713,6 @@ class CheckResult(OrderedDict):
                 outfile.write("\n")
                 outfile.write(str(self.errors))
 
-
     @property
     def warnings(self):
         out = CheckResult()
@@ -1530,4 +1765,3 @@ def check_type(var, allowed_types):
                 allowed_types.append(this)
 
     return this_type in allowed_types
-
