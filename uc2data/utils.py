@@ -4,6 +4,23 @@ from .Result import ResultCode, CheckResult
 
 
 def check_type(var, allowed_types):
+
+    """
+    Checks whether a variable is of an allowed type
+
+    Parameters
+    ----------
+    var : any
+        the variable to check
+    allowed_types : list
+        list of types that are allowed
+
+    Returns
+    -------
+    True if the variable is of an allowed type. False otherwise
+
+    """
+
     all_floats = [float, numpy.float, numpy.float16, numpy.float32, numpy.float64]
     all_ints = [int, numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.int64]
 

@@ -39,7 +39,7 @@ class ResultItem:
         result : ResultCode
             Whether the check was OK or resulted in a warning or error. Default: OK
         message : str
-            A message for the user. Default: "Test passed."
+            A message for the user. Only applies if result is not OK. Default: "Test passed."
         """
 
         self.result = result
@@ -69,29 +69,57 @@ class CheckResult(OrderedDict):
     """
     This object collects ResultItems in a structured way.
 
-    The ResultItems are structured in a dict-like structure.
-    The tags can be nested. TODO: Keep on documenting here!!!
+    The object is iterable which yields the unnested results.
+    The object also contains tags like a dictionary.
+    Each tag contains a deeper (nested) CheckResult object.
 
     Attributes
     ----------
-    result : ResultCode
-        Whether the check was OK or resulted in a warning or error
-    message : str
-        A message for the user
+    result : ResultItem
+        Whether the test was passed or generated a warning/error. Includes a message for the user.
 
     """
 
     def __init__(self, *args, **kwargs):
+
+        """
+        Creates a CheckResult object.
+
+        Parameters
+        ----------
+        *args
+            passed on to add method for initialization with a specific result
+        *kwargs
+            passed on to add method for initialization with a specific result
+        """
+
         self.result = list()
         if args or kwargs:
             self.add(*args, **kwargs)
 
     def __getitem__(self, item):
+
+        """
+        Get the result(s) of a tag
+
+        Parameters
+        ----------
+        item
+            name of the tag to get the results for
+        """
+
         if item not in super().keys():
-            self[item] = CheckResult()
+            self[item] = CheckResult()  # if there is no tag yet: Create it with an empty CheckResult
         return super().__getitem__(item)
 
     def __bool__(self):
+
+        """
+        Returns True if all results are OK or WARNING.
+
+        If no results are present, False is returned.
+        """
+
         if len(self.result) == 0:
             # an empty thing is not True (otherwise you couldnt check for bool(result["var"]) if "var" is not in result
             ok = len(self.keys()) != 0
@@ -101,17 +129,22 @@ class CheckResult(OrderedDict):
         if not ok:
             return ok
 
-        for val in self.values():
+        for val in self.values():  # loop through nested tags
             if not val:
                 return False
 
         return True
 
     def contains_warnings(self):
+
+        """
+        Returns True if there are WARNINGs within the object.
+        """
+
         if len(self.result) == 0:
             has_warn = False
         else:
-            has_warn = any([ir.result == ResultCode.WARNING for ir in self.result])
+            has_warn = any([ir.result == ResultCode.WARNING for ir in self.result])  # This checks the unnested results
 
         if has_warn:
             return has_warn
@@ -124,6 +157,38 @@ class CheckResult(OrderedDict):
 
     def add(self, result, message=""):
 
+        """
+        Adds a ResultItem to the CheckResult object
+
+        If an error is added to a tag which was OK before, the OK result is removed.
+        If there was already an error, the new error is added to the tag.
+        If an OK result is added to a tag which has an error or a warning, the OK result is actually not added.
+
+        Parameters
+        ----------
+        result : Union[ResultCode, ResultItem, CheckResult]
+            If result is of type ResultItem then message parameter is ignored
+        message : str
+            passed on to add method for initialization with a specific result
+
+        Examples
+        --------
+        >>> d = uc2data.CheckResult()
+        >>> d["thisTest"].add(uc2data.ResultCode.OK)  # add a nested OK result
+        >>> print(d)
+        [ thisTest ]
+            Test passed. (ResultCode.OK)
+        >>> d["thisTest"].add(uc2data.ResultCode.ERROR, "something went wrong")  # add an ERROR in the same tag (OK is removed)
+        >>> print(d)
+        [ thisTest ]
+            something went wrong (ResultCode.ERROR)
+        >>> d.add(uc2data.ResultItem(uc2data.ResultCode.OK))  # add an unnsted OK ResultItem
+        >>> print(d)
+        Test passed. (ResultCode.OK)
+        [ thisTest ]
+            something went wrong (ResultCode.ERROR)
+        """
+
         if isinstance(result, ResultCode):
             other = ResultItem(result, message)
         else:
@@ -132,9 +197,9 @@ class CheckResult(OrderedDict):
         if isinstance(other, ResultItem):
             if other.result == ResultCode.OK:
                 if len(self.result) == 0:
-                    self.result.append(other)
+                    self.result.append(other)  # no result yet? => add this one
                 else:
-                    return  # There are ERRORs in result. => not OK, If OK => stays OK
+                    return  # There are ERRORs or WARNINGs in result. => not OK, If OK => stays OK
             else:
                 for i in self.result:
                     if i.result == ResultCode.OK:
@@ -143,13 +208,17 @@ class CheckResult(OrderedDict):
 
         elif isinstance(other, CheckResult):
             for i in other.result:
-                self.add(i)
+                self.add(i)  # add each unnested ResultItem of the other object
             for key, value in other.items():
-                self[key].add(value)
+                self[key].add(value)  # add each nested results of the other object
         else:
             raise Exception("unexpected type of other")
 
     def __repr__(self):
+
+        """
+        Prints the CheckResult in a nice way
+        """
 
         out = list()
         for i in self.result:
@@ -163,6 +232,16 @@ class CheckResult(OrderedDict):
         return out
 
     def to_file(self, file, full=False):
+        """
+        Writes a file with results
+
+        Parameters
+        ----------
+        file : str
+            the filename
+        full : bool
+            If set, also OK results will be printed. Default: only ERRORs and WARNINGs
+        """
         with open(file, "w") as outfile:
             if full:
                 outfile.write(self.__repr__())
