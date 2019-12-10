@@ -1,5 +1,5 @@
 import unittest
-from uc2data.UC2Data import *
+from uc2data.Dataset import *
 
 
 class TestCheckResult(unittest.TestCase):
@@ -19,7 +19,7 @@ class TestCheckResult(unittest.TestCase):
         for fn in files:
             fn = self.file_dir + fn + ".nc"
 
-            data = UC2Data(fn)
+            data = Dataset(fn)
             data.uc2_check()
             self.assertTrue(data.check_result)
             self.assertTrue(len(data.check_result.errors) == 0)
@@ -30,7 +30,7 @@ class TestCheckResult(unittest.TestCase):
 
     def test_nonsense_fails(self):
         fn = self.file_dir + "nonsense.nc"
-        data = UC2Data(fn)
+        data = Dataset(fn)
         data.uc2_check()
         self.assertFalse(data.check_result)
 

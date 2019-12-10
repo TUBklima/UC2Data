@@ -2,16 +2,15 @@ from __future__ import annotations
 import pyproj
 import xarray
 import numpy
-import enum
 import csv
 import re
 import calendar
-from numpy.core.defchararray import add as str_add
-from collections import OrderedDict
 import netCDF4
 import importlib
 import pathlib
 from cached_property import cached_property
+from .utils import check_type, check_person_field, compare_utms
+from .Result import ResultCode, CheckResult
 
 libpath = pathlib.Path(importlib.import_module("uc2data").__file__)
 respath = libpath.parent / "resources"
@@ -22,7 +21,7 @@ institutions_file = respath / "institutions.txt"
 sites_file = respath / "sites.txt"
 
 
-class UC2Data:
+class Dataset:
     """
     This object represents data of NetCDF files following the UC2 data standard.
 
@@ -30,8 +29,8 @@ class UC2Data:
     ----------
     path : str or pathlib.Path
         The path of the file that is to be/was read
-    check_result : UC2Data.CheckResult
-        The results of a call to UC2Data.uc2_check
+    check_result : Dataset.CheckResult
+        The results of a call to Dataset.uc2_check
     ds : xarray.Dataset
         The representation of the data
 
@@ -117,7 +116,7 @@ class UC2Data:
 
     def __init__(self, path):
         """
-        returns a UC2Data object
+        returns a Dataset object
 
         Parameters
         ----------
@@ -298,7 +297,7 @@ class UC2Data:
 
         Returns
         -------
-        UC2Data.CheckResult: The check results concerning these checks.
+        Dataset.CheckResult: The check results concerning these checks.
 
         """
 
@@ -342,7 +341,7 @@ class UC2Data:
 
         Returns
         -------
-        UC2Data.CheckResult: The result of these checks
+        Dataset.CheckResult: The result of these checks
 
         """
 
@@ -480,7 +479,7 @@ class UC2Data:
 
         Returns
         -------
-        UC2Data.CheckResult: the results of the variable check
+        Dataset.CheckResult: the results of the variable check
 
         """
 
@@ -582,7 +581,7 @@ class UC2Data:
 
         Returns
         -------
-        UC2Data.CheckResult: the results of the variable attribute check
+        Dataset.CheckResult: the results of the variable attribute check
 
         """
 
@@ -661,7 +660,7 @@ class UC2Data:
 
         Returns
         -------
-        UC2Data.CheckResult: the results of the global attribute check
+        Dataset.CheckResult: the results of the global attribute check
 
         """
 
@@ -726,7 +725,7 @@ class UC2Data:
         Checks dimensions within the NetCDF file for consistency
 
         This check is called internally by the uc2_check method.
-        The check_result attribute of the UC2Data object are updated.
+        The check_result attribute of the Dataset object are updated.
 
         Returns
         -------
@@ -754,7 +753,7 @@ class UC2Data:
 
         This check is called internally by the uc2_check method and only makes sense within that
         workflow. This is because check results of previous checks are required within this method.
-        The check_result attribute of the UC2Data object are updated.
+        The check_result attribute of the Dataset object are updated.
 
         Returns
         -------
@@ -1241,7 +1240,7 @@ class UC2Data:
         Checks all global attributes within the NetCDF file for consistency
 
         This check is called internally by the uc2_check method.
-        The check_result attribute of the UC2Data object are updated.
+        The check_result attribute of the Dataset object are updated.
 
         Returns
         -------
@@ -1252,7 +1251,7 @@ class UC2Data:
         self.check_result["title"].add(self.check_glob_attr("title", True, str))
         self.check_result["data_content"].add(
             self.check_glob_attr("data_content", True, str,
-                                 allowed_values=UC2Data.allowed_data_contents + list(UC2Data.allowed_variables.keys()),
+                                 allowed_values=Dataset.allowed_data_contents + list(Dataset.allowed_variables.keys()),
                                  max_strlen=16))
         self.check_result["source"].add(self.check_glob_attr("source", True, str))
         self.check_result["version"].add(self.check_glob_attr("version", True, int, allowed_values=list(
@@ -1265,7 +1264,7 @@ class UC2Data:
         self.check_result["comment"].add(self.check_glob_attr("comment", True, str))
         self.check_result["keywords"].add(self.check_glob_attr("keywords", True, str))
         self.check_result["licence"].add(
-            self.check_glob_attr("licence", True, str, allowed_values=UC2Data.allowed_licences))
+            self.check_glob_attr("licence", True, str, allowed_values=Dataset.allowed_licences))
         self.check_result["creation_time"].add(
             self.check_glob_attr("creation_time", True, str,
             regex="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
@@ -1295,21 +1294,21 @@ class UC2Data:
         self.check_result["origin_z"].add(self.check_glob_attr("origin_z", True, float,
                                                                allowed_values=0 if (not self.is_grid) else None))
         self.check_result["location"].add(
-            self.check_glob_attr("location", True, str, allowed_values=UC2Data.allowed_locations))
-        self.check_result["site"].add(self.check_glob_attr("site", True, str, allowed_values=UC2Data.allowed_sites,
+            self.check_glob_attr("location", True, str, allowed_values=Dataset.allowed_locations))
+        self.check_result["site"].add(self.check_glob_attr("site", True, str, allowed_values=Dataset.allowed_sites,
                                                            max_strlen=12))
         if self.check_result["location"] and self.check_result["site"]:
-            if UC2Data.allowed_locations[UC2Data.allowed_sites.index(self.ds.site)] != self.ds.location:
+            if Dataset.allowed_locations[Dataset.allowed_sites.index(self.ds.site)] != self.ds.location:
                 self.check_result["site"].add(ResultCode.ERROR, "site '" + self.ds.site +
                                               "' does not match location '" + self.ds.location + "'")
 
         self.check_result["institution"].add(
-            self.check_glob_attr("institution", True, str, allowed_values=UC2Data.allowed_institutions))
+            self.check_glob_attr("institution", True, str, allowed_values=Dataset.allowed_institutions))
         self.check_result["acronym"].add(
-            self.check_glob_attr("acronym", True, str, allowed_values=UC2Data.allowed_acronyms,
+            self.check_glob_attr("acronym", True, str, allowed_values=Dataset.allowed_acronyms,
                                  max_strlen=12))
         if self.check_result["institution"] and self.check_result["acronym"]:
-            if UC2Data.allowed_institutions.index(self.ds.institution) != UC2Data.allowed_acronyms.index(
+            if Dataset.allowed_institutions.index(self.ds.institution) != Dataset.allowed_acronyms.index(
                     self.ds.acronym):
                 self.check_result["institution"].add(ResultCode.ERROR, "institution '" + self.ds.institution +
                                                      "' does not match acronym '" + self.ds.acronym + "'")
@@ -1350,7 +1349,7 @@ class UC2Data:
 
         This check is called internally by the uc2_check method and only makes sense within that
         workflow. This is because check results of previous checks are required within this method.
-        The check_result attribute of the UC2Data object are updated.
+        The check_result attribute of the Dataset object are updated.
 
         Returns
         -------
@@ -1383,7 +1382,7 @@ class UC2Data:
 
         This check is called internally by the uc2_check method and only makes sense within that
         workflow. This is because check results of previous checks are required within this method.
-        The check_result attribute of the UC2Data object are updated.
+        The check_result attribute of the Dataset object are updated.
 
         Returns
         -------
@@ -1458,310 +1457,3 @@ class UC2Data:
         geo = pyproj.CRS("epsg:4258")
 
         return pyproj.transform(geo, utm, y, x)
-
-
-def compare_utms(e1, n1, e2, n2):
-    """
-    Checks whether pairs of UTM coordinates refer to (roughly) the same location
-
-    A warning is given if coordinate pairs differ by a small distance
-
-    Parameters
-    ----------
-    e1 : float
-        UTM easting(s) of the first point(s). Can be scalar of numpy.array
-    n1 : float
-        UTM northing(s) of the first point(s). Can be scalar of numpy.array
-    e2 : float
-        UTM easting(s) of the second point(s). Can be scalar of numpy.array
-    n2 : float
-        UTM northing(s) of the second point(s). Can be scalar of numpy.array
-
-    Returns
-    -------
-    UC2Data.CheckResult: The result of this check
-
-    """
-
-    if not isinstance(e1, numpy.ndarray):
-        e1 = [e1]
-    if not isinstance(n1, numpy.ndarray):
-        n1 = [n1]
-    if not isinstance(e2, numpy.ndarray):
-        e2 = [e2]
-    if not isinstance(n2, numpy.ndarray):
-        n2 = [n2]
-
-    max_diff = max(max(abs(numpy.subtract(e1, e2))),
-                   max(abs(numpy.subtract(n1, n2))))
-
-    out = CheckResult()
-
-    if max_diff < 0.1:
-        out.add(ResultCode.OK)
-    elif max_diff < 1:
-        out.add(ResultCode.WARNING, "UTM coordinates in file " +
-                "differ from UTM coordinates calculated from lat/lon " +
-                "by up to " + str(max_diff) + " m.")
-    else:
-        out.add(ResultCode.ERROR, "UTM coordinates in file " +
-                "do not match calculated UTM coordinates from lat/lon in file")
-
-    return out
-
-
-def check_person_field(string, attrname):
-
-    """
-    Checks whether a string matches the definition of personal details
-
-    personal detail strings must be formated like this:
-    "LastName, FirstName[, email]"
-    Multiple persons are separated with ";"
-
-    Parameters
-    ----------
-    string : str
-        The string to check
-    attrname : str
-        Name of the attribute which contains the string
-
-    Returns
-    -------
-    UC2Data.CheckResult: The result of this check
-
-    """
-
-    s = string.split(';')
-    for i in s:
-        i_s = i.split(',')
-        if not len(i_s) in [2, 3]:
-            return CheckResult(ResultCode.ERROR,
-                               "Global attribute '" + attrname + "': Persons must be given as last_name, first_name[, email]")
-        if len(i_s) == 3:
-            if re.fullmatch(r"[^@]+@[^@]+\.[^@]+", i_s[2]) is None:
-                return CheckResult(ResultCode.ERROR, "Global attribute '" + attrname + "': " + i_s[
-                    2] + " is not a valid email address.")
-    return CheckResult(ResultCode.OK)
-
-
-class ResultCode(enum.Enum):
-
-    """
-    This object represents whether a check results in OK, warning or error.
-
-    """
-
-    OK = 1
-    WARNING = 2
-    ERROR = 3
-
-
-class ResultItem:
-
-    """
-    This object combines the ResultCode class with a message string.
-
-    Attributes
-    ----------
-    result : ResultCode
-        Whether the check was OK or resulted in a warning or error
-    message : str
-        A message for the user
-
-    """
-
-    def __init__(self, result: ResultCode = ResultCode.OK, message: str = ""):
-
-        """
-        Creates a ResultItem object
-
-        Parameters
-        ----------
-        result : ResultCode
-            Whether the check was OK or resulted in a warning or error. Default: OK
-        message : str
-            A message for the user. Default: "Test passed."
-        """
-
-        self.result = result
-        if result == ResultCode.OK:
-            if message != "":
-                raise Exception("cannot handle user message for ResultCode.OK")
-            self.message = "Test passed."
-        else:
-            self.message = message
-
-    def __bool__(self):
-
-        """
-        Checks whether the test passed
-
-        Returns
-        -------
-        True if ResultCode is OK or WARNING, False otherwise
-
-        """
-
-        return self.result != ResultCode.ERROR
-
-
-class CheckResult(OrderedDict):
-
-    """
-    This object collects ResultItems in a structured way.
-
-    The ResultItems are structured in a dict-like structure.
-    The tags can be nested. TODO: Keep on documenting here!!!
-
-    Attributes
-    ----------
-    result : ResultCode
-        Whether the check was OK or resulted in a warning or error
-    message : str
-        A message for the user
-
-    """
-
-    def __init__(self, *args, **kwargs):
-        self.result = list()
-        if args or kwargs:
-            self.add(*args, **kwargs)
-
-    def __getitem__(self, item):
-        if item not in super().keys():
-            self[item] = CheckResult()
-        return super().__getitem__(item)
-
-    def __bool__(self):
-        if len(self.result) == 0:
-            # an empty thing is not True (otherwise you couldnt check for bool(result["var"]) if "var" is not in result
-            ok = len(self.keys()) != 0
-        else:
-            ok = all(i_ok for i_ok in self.result)
-
-        if not ok:
-            return ok
-
-        for val in self.values():
-            if not val:
-                return False
-
-        return True
-
-    def contains_warnings(self):
-        if len(self.result) == 0:
-            has_warn = False
-        else:
-            has_warn = any([ir.result == ResultCode.WARNING for ir in self.result])
-
-        if has_warn:
-            return has_warn
-
-        for val in self.values():
-            if val.contains_warnings():
-                return True
-
-        return False
-
-    def add(self, result, message=""):
-
-        if isinstance(result, ResultCode):
-            other = ResultItem(result, message)
-        else:
-            other = result
-
-        if isinstance(other, ResultItem):
-            if other.result == ResultCode.OK:
-                if len(self.result) == 0:
-                    self.result.append(other)
-                else:
-                    return  # There are ERRORs in result. => not OK, If OK => stays OK
-            else:
-                for i in self.result:
-                    if i.result == ResultCode.OK:
-                        self.result.remove(i)  # remove OK from result because ERROR is added.
-                self.result.append(other)
-
-        elif isinstance(other, CheckResult):
-            for i in other.result:
-                self.add(i)
-            for key, value in other.items():
-                self[key].add(value)
-        else:
-            raise Exception("unexpected type of other")
-
-    def __repr__(self):
-
-        out = list()
-        for i in self.result:
-            out.append(i.message + " (" + str(i.result) + ")")
-
-        for k, v in self.items():
-            out.append("[ " + k + " ]")
-            out.extend(list(str_add("    ", v.__repr__().split("\n"))))
-
-        out = "\n".join(out)
-        return out
-
-    def to_file(self, file, full=False):
-        with open(file, "w") as outfile:
-            if full:
-                outfile.write(self.__repr__())
-            else:
-                outfile.write(str(self.warnings))
-                outfile.write("\n")
-                outfile.write(str(self.errors))
-
-    @property
-    def warnings(self):
-        out = CheckResult()
-        for i in self.result:
-            if i.result == ResultCode.WARNING:
-                out.add(i)
-
-        for k, v in self.items():
-            if v.contains_warnings():
-                out[k].add(v.warnings)
-
-        return out
-
-    @property
-    def errors(self):
-        out = CheckResult()
-        for i in self.result:
-            if not i:
-                out.add(i)
-
-        for k, v in self.items():
-            if not v:
-                out[k].add(v.errors)
-
-        return out
-
-
-def check_type(var, allowed_types):
-    all_floats = [float, numpy.float, numpy.float16, numpy.float32, numpy.float64]
-    all_ints = [int, numpy.int, numpy.int8, numpy.int16, numpy.int32, numpy.int64]
-
-    try:
-        this_type = var.dtype
-    except AttributeError:
-        this_type = type(var)
-
-    if type(allowed_types) != list:
-        allowed_types = [allowed_types]
-
-    # allow all floats?
-    if any(i in all_floats for i in allowed_types):
-        for this in all_floats:
-            if this not in allowed_types:
-                allowed_types.append(this)
-
-    # allow all ints?
-    if any(i in all_ints for i in allowed_types):
-        for this in all_ints:
-            if this not in allowed_types:
-                allowed_types.append(this)
-
-    return this_type in allowed_types
