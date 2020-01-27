@@ -8,17 +8,18 @@ import calendar
 import netCDF4
 import importlib
 import pathlib
+import urllib.request
 from cached_property import cached_property
 from .utils import check_type, check_person_field, compare_utms
 from .Result import ResultCode, CheckResult
 
 libpath = pathlib.Path(importlib.import_module("uc2data").__file__)
 respath = libpath.parent / "resources"
-aggregations_file = respath / "aggregations.txt"
-data_content_file = respath / "data_content.txt"
-variables_file = respath / "variables.txt"
-institutions_file = respath / "institutions.txt"
-sites_file = respath / "sites.txt"
+aggregations_file = respath / "aggregations.csv"
+variables_file = respath / "uc2_table_A1.csv"
+institutions_file = respath / "uc2_table_A3.csv"
+data_content_file = respath / "uc2_table_A2.csv"
+sites_file = respath / "uc2_table_A4.csv"
 
 
 class Dataset:
@@ -66,21 +67,39 @@ class Dataset:
 
     allowed_featuretypes = ["timeSeries", "timeSeriesProfile", "trajectory"]
 
+    # try to download newest versions of the table files
+    try:
+        urllib.request.urlretrieve('http://www.uc2-program.org/uc2_table_A1.csv', variables_file)
+    except Exception:
+        pass
+    try:
+        urllib.request.urlretrieve('http://www.uc2-program.org/uc2_table_A2.csv', data_content_file)
+    except Exception:
+        pass
+    try:
+        urllib.request.urlretrieve('http://www.uc2-program.org/uc2_table_A3.csv', institutions_file)
+    except Exception:
+        pass
+    try:
+        urllib.request.urlretrieve('http://www.uc2-program.org/uc2_table_A4.csv', sites_file)
+    except Exception:
+        pass
+
     allowed_aggregations = dict()
     with open(aggregations_file, encoding="utf-8") as csvfile:
-        spamreader = csv.reader(csvfile, delimiter='|', quotechar='"')
+        spamreader = csv.reader(csvfile, delimiter='\t', quotechar='"')
         for row in spamreader:
             allowed_aggregations[row[1]] = row[2]
 
     allowed_data_contents = list()
     with open(data_content_file, encoding="utf-8") as csvfile:
-        spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
+        spamreader = csv.reader(csvfile, delimiter='\t', quotechar='"')
         for row in spamreader:
             allowed_data_contents.append(row[1])
 
     allowed_variables = dict()
     with open(variables_file, encoding="utf-8") as csvfile:
-        spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
+        spamreader = csv.reader(csvfile, delimiter='\t', quotechar='"')
         for row in spamreader:
             allowed_variables[row[3]] = {
                 "long_name": row[0],
@@ -90,9 +109,11 @@ class Dataset:
     allowed_institutions = []
     allowed_acronyms = []
     with open(institutions_file, encoding="utf-8") as csvfile:
-        spamreader = csv.reader(csvfile, delimiter=';', quotechar='"')
+        spamreader = csv.reader(csvfile, delimiter='\t', quotechar='"')
         for row in spamreader:
-            allowed_institutions.append(row[0])
+            allowed_institutions.append(row[0])  # german name
+            allowed_acronyms.append(row[1])
+            allowed_institutions.append(row[2])  # english name
             allowed_acronyms.append(row[1])
 
     allowed_locations = []
@@ -697,7 +718,8 @@ class Dataset:
                                "Should be " + str(allowed_values[0]) + ". " +
                                "Found value: " + str(this_value))
                 else:
-                    result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong value")
+                    result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong value. " +
+                               "Found value: " + str(this_value))
 
         if regex is not None:
             if re.fullmatch(regex, this_value) is None:
@@ -1308,8 +1330,8 @@ class Dataset:
             self.check_glob_attr("acronym", True, str, allowed_values=Dataset.allowed_acronyms,
                                  max_strlen=12))
         if self.check_result["institution"] and self.check_result["acronym"]:
-            if Dataset.allowed_institutions.index(self.ds.institution) != Dataset.allowed_acronyms.index(
-                    self.ds.acronym):
+            if Dataset.allowed_acronyms[Dataset.allowed_institutions.index(self.ds.institution)] != \
+                    self.ds.acronym:
                 self.check_result["institution"].add(ResultCode.ERROR, "institution '" + self.ds.institution +
                                                      "' does not match acronym '" + self.ds.acronym + "'")
 

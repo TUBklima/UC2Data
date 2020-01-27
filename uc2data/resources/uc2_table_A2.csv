@@ -1,0 +1,33 @@
+variable category	data_content	remarks
+atmosphere dynamics*	dyn	combines atmosphere dynamics variables, e.g. air pressure, energy content, wind, momentum fluxes, etc.
+atmospheric chemistry and meteorology	airmeteo	combines atmospheric chemistry and meteorological variables
+atmospheric chemistry gas	airgas	combines atmospheric chemistry gas variables
+atmospheric chemistry particles	airpm	combines atmospheric chemistry particle variables
+atmospheric chemistry*	air	combines atmospheric chemistry and atmospheric chemistry particle variables
+biometeorology	biometeo	combines biometeorological variables
+carbon cycle*	carbon	combines carbon variables
+cloud*	cloud	combines cloud variables
+hydrology*	hydro	combines hydrological variables
+	meteo	combines meteorological variables except atmospheric chemistry
+PALM-4U 3d data	3d	
+PALM-4U 3d data time averaged	3d_av	
+PALM-4U chemistry input data	pidschem	background concentration and emission input data for the chemisty module
+PALM-4U dynamic input data	pidsdynamic	physical input parameters that do change in time, e.g. lateral boundary conditions etc.
+PALM-4U masked output data	podsmasked	output data for limited parts of the computational domain, from 3D-subdomains down to single grid point values
+PALM-4U radiation input data	pidsrad	physical input parameters that are used in the radiation model, e.g. trace gas profiles
+PALM-4U static input data	pidsstatic	physical input parameters, e.g. albedo, roughness, emissivity, heat conductivity, leaf area density per grid point (x,y,z), that do not change in time
+PALM-4U timeseries input data	pidsts	timeseries of selected model parameters and domain averaged  quantities
+PALM-4U vertical profile output data	podspr	vertical profiles averaged over the horizontal computational domain
+PALM-4U vertical profile output data time averaged	podsprav	vertical profiles averaged over the horizontal computational domain, additionally averaged in time
+PALM-4U xy sections	xy	
+PALM-4U xy sections time averaged	xy_av	
+PALM-4U xz sections	xz	
+PALM-4U xz sections time averaged	xz_av	
+PALM-4U yz sections	yz	
+PALM-4U yz sections time averaged	yz_av	
+radiation*	rad	combines radiation variables
+soil	soil	combines soil variables
+surface*	sfc	combines surface variables, e.g. surface albedo, surface heat fluxes etc.
+temperature	temp	combines temperature variables
+volatile organic compounds	voc	combines volatile organic compounds
+atmospheric soundings	atmsound	combines meteorological variables measured by atmospheric sounding devices, e.g. tethered balloons
