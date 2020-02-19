@@ -252,6 +252,7 @@ class Dataset:
         # TODO: If all variables have cell_methods with z:point then no z_bounds (and bounds attribute)
         # TODO: parse cell_methods more nicely: allow "lat: time: lon: mean over years z: sum"
         #       - check if dims have bounds
+        # TODO: Make fast check without reading complete arrays?
 
         ###
         # Check geo vars
@@ -523,6 +524,7 @@ class Dataset:
                            "Found type: " + str(this_var.dtype))
 
         if allowed_range is not None:
+            # TODO: remove fill values from this check!!
             if (this_var.min() < allowed_range[0]) or (this_var.max() > allowed_range[1]):
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "' is outside allowed range" + str(allowed_range) + ". " +
@@ -826,18 +828,21 @@ class Dataset:
 
         # Check that LTO time series have minimum time step of 30 min.
         if self.is_lto:
-            diff_ok = self.ds["time"].diff(time_dim_name) >= 1800  # is difference ok?
-            # add 1 column to diff_ok because diff is one column shorter than time variable
-            if self.ds["time"].ndim > 1:
-                add_to = numpy.ones((diff_ok.shape[0], 1), dtype=bool)
-                diff_ok = numpy.concatenate((add_to, diff_ok), axis=1)
+            if self.check_result["time"]:
+                diff_ok = self.ds["time"].diff(time_dim_name) >= 1800  # is difference ok?
+                # add 1 column to diff_ok because diff is one column shorter than time variable
+                if self.ds["time"].ndim > 1:
+                    add_to = numpy.ones((diff_ok.shape[0], 1), dtype=bool)
+                    diff_ok = numpy.concatenate((add_to, diff_ok), axis=1)
+                else:
+                    add_to = numpy.array([True])
+                    diff_ok = numpy.concatenate((add_to, diff_ok))
+                is_valid = numpy.not_equal(self.ds["time"].values, -9999)  # -9999 is excluded from diff check
+                if numpy.any(
+                        numpy.logical_and(numpy.logical_not(diff_ok), is_valid)):  # if diff not okay and not -9999 -> error
+                    self.check_result.add(ResultCode.ERROR, "Minimum time step in LTO must be 30 minutes")
             else:
-                add_to = numpy.array([True])
-                diff_ok = numpy.concatenate((add_to, diff_ok))
-            is_valid = numpy.not_equal(self.ds["time"].values, -9999)  # -9999 is excluded from diff check
-            if numpy.any(
-                    numpy.logical_and(numpy.logical_not(diff_ok), is_valid)):  # if diff not okay and not -9999 -> error
-                self.check_result.add(ResultCode.ERROR, "Minimum time step in LTO data is 30 minutes")
+                self.check_result["time"]["variable"].add(ResultCode.ERROR, "Cannot check time steps because of previous error in time variable.")
 
         if self.check_result["time"]["variable"]:
             self.check_result["time"]["long_name"].add(
@@ -1427,6 +1432,7 @@ class Dataset:
                                                                          " agg_method in this case."
                         )
                 else:
+                    short_method = None
                     for iag, ival in self.allowed_aggregations.items():  # get short version of method for variable name
                         if ival == method:
                             short_method = iag
