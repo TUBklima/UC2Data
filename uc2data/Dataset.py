@@ -1345,7 +1345,7 @@ class Dataset:
             self.check_result["contact_person"].add(check_person_field(self.ds.contact_person, "contact_person"))
 
         self.check_result["campaign"].add(self.check_glob_attr("campaign", True, str, regex="^[A-Za-z0-9\._-]+$",
-                                                               max_strlen=12))
+                                                               max_strlen=12)) # TODO: max_strlen gilt nur für UC2 Projekt?
         if self.check_result["campaign"]:
             if self.is_iop:
                 try:
