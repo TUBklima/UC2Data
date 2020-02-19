@@ -1323,7 +1323,7 @@ class Dataset:
         self.check_result["location"].add(
             self.check_glob_attr("location", True, str, allowed_values=Dataset.allowed_locations))
         self.check_result["site"].add(self.check_glob_attr("site", True, str, allowed_values=Dataset.allowed_sites,
-                                                           max_strlen=12))
+                                                           max_strlen=12)) # TODO: max_strlen gilt nur für UC2 Projekt?
         if self.check_result["location"] and self.check_result["site"]:
             if Dataset.allowed_locations[Dataset.allowed_sites.index(self.ds.site)] != self.ds.location:
                 self.check_result["site"].add(ResultCode.ERROR, "site '" + self.ds.site +
@@ -1333,7 +1333,7 @@ class Dataset:
             self.check_glob_attr("institution", True, str, allowed_values=Dataset.allowed_institutions))
         self.check_result["acronym"].add(
             self.check_glob_attr("acronym", True, str, allowed_values=Dataset.allowed_acronyms,
-                                 max_strlen=12))
+                                 max_strlen=12)) # TODO: max_strlen gilt nur für UC2 Projekt?
         if self.check_result["institution"] and self.check_result["acronym"]:
             if Dataset.allowed_acronyms[Dataset.allowed_institutions.index(self.ds.institution)] != \
                     self.ds.acronym:
