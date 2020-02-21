@@ -524,11 +524,18 @@ class Dataset:
                            "Found type: " + str(this_var.dtype))
 
         if allowed_range is not None:
-            # TODO: remove fill values from this check!!
-            if (this_var.min() < allowed_range[0]) or (this_var.max() > allowed_range[1]):
+            if "_FillValue" in this_var.attrs:
+                any_value = this_var.values[this_var.values != this_var._FillValue][0]  # the first occurrence of non-FillValue
+                this_tmp = numpy.where(this_var.values == this_var._FillValue, any_value, this_var.values)
+                this_var_min = this_tmp.min()
+                this_var_max = this_tmp.max()
+            else:
+                this_var_min = this_var.min()
+                this_var_max = this_var.max()
+            if (this_var_min < allowed_range[0]) or (this_var_max > allowed_range[1]):
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "' is outside allowed range" + str(allowed_range) + ". " +
-                           "Found range: [" + str(this_var.values.min()) + "," + str(this_var.values.max()) + "]")
+                           "Found range: [" + str(this_var_min) + "," + str(this_var_max) + "]")
 
         if dims is not None:
             if type(dims) == str:  # dims can be scalar string
