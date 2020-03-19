@@ -28,3 +28,7 @@ The data itself is represented as an xarray dataset. Access it like this:
 `print(my_dataset.check_result.errors)  # get just the errors`
 
 `print(my_dataset.check_result.warnings)  # get just the warnings`
+
+### Check multiple files at once
+
+  uc2data.check_multi(folder) # opens every *.nc in the directory, checks it and writes a *.check with the results
