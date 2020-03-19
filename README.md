@@ -31,4 +31,4 @@ The data itself is represented as an xarray dataset. Access it like this:
 
 ### Check multiple files at once
 
-`uc2data.check_multi(folder) # opens every *.nc in the directory, checks it and writes a *.check with the results
+`uc2data.check_multi(folder) # opens every *.nc in the directory, checks it and writes a *.check with the results`
