@@ -1488,7 +1488,7 @@ class Dataset:
 
         """
 
-        utm = pyproj.CRS(self.ds["crs"].epsg_code.lower(), preserve_units=False)
+        utm = pyproj.CRS(self.ds["crs"].epsg_code.lower())
         geo = pyproj.CRS("epsg:4258")
 
         return pyproj.transform(geo, utm, y, x)
