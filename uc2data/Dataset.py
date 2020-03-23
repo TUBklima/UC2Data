@@ -1094,8 +1094,23 @@ class Dataset:
                 continue
 
             if is_bands:
-                self.check_result[ikey].add(
-                    self.check_var(ikey, True, dims=ikey, fill_allowed=False, must_be_sorted_along=ikey))
+                # check if this is a coordinate variable or an auxiliary coordinate variable
+                if ikey in self.ds.dims.keys():  # is coordinate variable
+                    self.check_result[ikey].add(
+                        self.check_var(ikey, True, dims=ikey, fill_allowed=False, must_be_sorted_along=ikey))
+                else:  # is not coordinate variable
+                    if len(self.ds[ikey].dims) != 1:
+                        self.check_result[ikey].add(ResultCode.ERROR, "Variable '" + ikey + "' is expected to be a " +
+                                                    "coordinate variable or an auxiliary coordinate variable. This means" +
+                                                    " it must be 1-dimensional. Found dimension: " + str(self.ds[ikey].dims))
+                    else:
+                        if not self.ds[ikey].dims[0].startswith("bands_"):
+                            self.check_result[ikey].add(ResultCode.ERROR, "Variable '" + ikey + "' is expected to be a " +
+                                                    "coordinate variable or an auxiliary coordinate variable. This means" +
+                                                    " it must follow a 'bands_'-dimension. Found dimension: " + str(self.ds[ikey].dims))
+                        else:
+                            self.check_var(ikey, True)
+
             elif is_bounds:
 
                 main_key = ikey.replace("_bounds", "")
