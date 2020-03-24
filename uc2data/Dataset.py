@@ -1176,8 +1176,15 @@ class Dataset:
                 if expected_data_content not in data_content_var_names:
                     data_content_var_names.append(expected_data_content)
 
-                # Check var
-                self.check_result[ikey]["variable"].add(self.check_var(ikey, True, dims=data_dims))
+                # Check var (depending on whether it has bands_ dim or not
+                dim_start_with_bands = [idim for idim in self.ds[ikey].dims if idim.startswith("bands_")]
+                if len(dim_start_with_bands) > 1:
+                    self.check_result[ikey]["variable"].add(ResultCode.ERROR, "not more than one dimension starting with "+
+                                                            "'bands_' allowed in variable.")
+                if len(dim_start_with_bands) == 0:  # normal case
+                    self.check_result[ikey]["variable"].add(self.check_var(ikey, True, dims=data_dims))
+                else:  # variable has bands_ dim
+                    self.check_result[ikey]["variable"].add(self.check_var(ikey, True, dims=(dim_start_with_bands[0],) + data_dims))
 
                 # Check obligatory attributes
                 self.check_result[ikey]["long_name"].add(self.check_var_attr(ikey, "long_name", True, allowed_types=str,
