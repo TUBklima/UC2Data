@@ -190,7 +190,7 @@ class Dataset:
 
     @cached_property
     def filename(self):
-        attrs = ["campaign", "location", "site", "acronym", "data_content", "origin_time", "version"]
+        attrs = ["campaign", "location", "site", "acronym", "data_content", "data_specifier", "origin_time", "version"]
         vals = list()
 
         if self.check_result is None:
@@ -205,13 +205,14 @@ class Dataset:
                 vals.append(self.ds.attrs[i][: 10].replace("-", ""))
             elif i == "version":
                 vals.append(str(self.ds.attrs[i]).zfill(3))
+            elif i == "data_specifier":
+                if i in self.ds.attrs.keys():
+                    vals.append(self.ds.attrs[i])
             else:
-                vals.append(self.ds.attrs[i].replace("-", "_"))
-                vals.append(self.ds.attrs[i].replace(".", "_"))
-                vals.append(self.ds.attrs[i].replace("/", "_"))
-                vals.append(self.ds.attrs[i].replace("\\", "_"))
+                tmp_val = self.ds.attrs[i].replace("-","_").replace(".","_").replace("/","_").replace("\\","_")
+                vals.append(tmp_val)
 
-        filename = "_".join(vals) + ".nc"
+        filename = "-".join(vals) + ".nc"
         return filename
 
     def uc2_check(self):
@@ -1304,6 +1305,8 @@ class Dataset:
 
         """
 
+        # required attributes
+
         self.check_result["title"].add(self.check_glob_attr("title", True, str))
         self.check_result["data_content"].add(
             self.check_glob_attr("data_content", True, str,
@@ -1336,6 +1339,12 @@ class Dataset:
         self.check_result["rotation_angle"].add(self.check_glob_attr("rotation_angle", True,
                                                                      float,
                                                                      allowed_range=[0, 360]))
+
+        # optional attributes
+
+        self.check_result["data_specifier"].add(self.check_glob_attr("data_specifier", False,
+                                                                     allowed_types=str, max_strlen=16,
+                                                                     regex="[A-Za-z0-9_]+"))
 
         # non-standard checks
 
