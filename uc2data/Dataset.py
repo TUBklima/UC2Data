@@ -517,6 +517,14 @@ class Dataset:
 
         this_var = self.ds[varname]
 
+        try:
+            if not numpy.all(numpy.isfinite(this_var.values)):
+                result.add(ResultCode.ERROR, "Variable '" + varname + "' contains non-finite values. Not allowed.")
+        except TypeError:
+            print("ok" + varname)
+        except:
+            raise
+
         if allowed_types is not None:
 
             if not check_type(this_var, allowed_types):
