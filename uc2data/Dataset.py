@@ -1050,6 +1050,7 @@ class Dataset:
         data_content_var_names = list()
         dont_check = ["station_h", "crs", "vrs", "height"]
         known_coordinates = ["station_name", "traj_name",
+                             "height",
                              "z", "zw", "zs",
                              "x", "xu", "xs",
                              "y", "yv", "ys",
