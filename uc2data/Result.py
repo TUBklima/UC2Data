@@ -214,6 +214,41 @@ class CheckResult(OrderedDict):
         else:
             raise Exception("unexpected type of other")
 
+    def to_dict(self, sort=False):
+        """
+        Convert the check result to a nested dictionary
+
+        :param sort: Have extra dictionaries for ERROR, WARNING, and OK
+        :return:
+        """
+        if sort:
+            root = {'root': {'ERROR': list(), 'WARNING': list(), 'OK': list()}}
+            for i in self.result:
+                if i.result == ResultCode.ERROR:
+                    root['root']['ERROR'].append(i.message)
+                elif i.result == ResultCode.WARNING:
+                    root['root']['WARNING'].append(i.message)
+                elif i.result == ResultCode.OK:
+                    root['root']['OK'].append(i.message)
+
+            for k, v in self.items():
+                rec_dict = v.to_dict(sort=True)
+                if rec_dict['root']['ERROR']:
+                    root['root']['ERROR'].append({k: rec_dict['root']['ERROR']})
+                if rec_dict['root']['WARNING']:
+                    root['root']['WARNING'].append({k: rec_dict['root']['WARNING']})
+                if rec_dict['root']['OK']:
+                    root['root']['OK'].append({k: rec_dict['root']['OK']})
+        else:
+            root = {'root': list() }
+            for i in self.result:
+                root['root'].append(i.message + " (" + str(i.result) + ")")
+
+            for k, v in self.items():
+                rec_dict = v.to_dict()
+                root['root'].append({k: rec_dict['root']})
+        return root
+
     def __repr__(self):
 
         """
