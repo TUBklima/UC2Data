@@ -521,7 +521,7 @@ class Dataset:
             if not numpy.all(numpy.isfinite(this_var.values)):
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' contains non-finite values. Not allowed.")
         except TypeError:
-            print("ok" + varname)
+            pass  # TypeError (probably) means that isfinite is not applicable to this variable. That's fine.
         except:
             raise
 
