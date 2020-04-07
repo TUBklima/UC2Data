@@ -276,8 +276,9 @@ class Dataset:
 
     def cf_check(self):
         if os.name != 'nt':
-            checker = cfchecks.CFChecker(silent=True)
+            checker = cfchecks.CFChecker(silent=True, version=cfchecks.vn1_7)
             cfres = checker.checker(str(self.path))
+
             self.check_result['cfchecks'] = CheckResult(ResultCode.OK)
 
             if cfres['global']['FATAL'] or cfres['global']['ERROR']:
@@ -302,7 +303,7 @@ class Dataset:
                     warnings.extend(var['INFO'])
                     [self.check_result['cfchecks'][varname].add(ResultCode.WARNING, msg) for msg in warnings]
         else:
-            self.check_result['cfchecks'] = CheckResult(ResultCode.WARNING, "cfchecks not performed since the platform is not supported")
+            self.check_result['cfchecks'] = CheckResult(ResultCode.WARNING, "cfchecks not performed since Windows is not supported")
 
 
     def _check_coordinates(self):
