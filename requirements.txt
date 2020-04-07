@@ -3,3 +3,4 @@ numpy
 pyproj
 cached_property
 netCDF4
+cfchecker==4.0

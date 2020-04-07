@@ -9,6 +9,8 @@ import netCDF4
 import importlib
 import pathlib
 import urllib.request
+from cfchecker import cfchecks
+import os
 from cached_property import cached_property
 from .utils import check_type, check_person_field, compare_utms
 from .Result import ResultCode, CheckResult
@@ -215,6 +217,7 @@ class Dataset:
         filename = "-".join(vals) + ".nc"
         return filename
 
+
     def uc2_check(self):
         """
         Performs all checks of conformity to the UC2 data standard.
@@ -228,6 +231,12 @@ class Dataset:
         """
 
         self.check_result = CheckResult()
+
+        ###
+        # Ensure cf conformance
+        ###
+
+        self.cf_check()
 
         ###
         # Check global attributes
@@ -264,6 +273,37 @@ class Dataset:
         else:
             self.check_result["coordinate_transform"].add(ResultCode.ERROR, "Cannot check geographic coordinates " +
                                                           "because of error in 'crs' variable.")
+
+    def cf_check(self):
+        if os.name != 'nt':
+            checker = cfchecks.CFChecker(silent=True)
+            cfres = checker.checker(str(self.path))
+            self.check_result['cfchecks'] = CheckResult(ResultCode.OK)
+
+            if cfres['global']['FATAL'] or cfres['global']['ERROR']:
+                errors = cfres['global']['FATAL']
+                errors.extend(cfres['global']['ERROR'])
+                [self.check_result['cfchecks'].add(ResultCode.ERROR, msg) for msg in errors]
+
+            if cfres['global']['WARN'] or cfres['global']['INFO']:
+                warnings = cfres['global']['WARN']
+                warnings.extend(cfres['global']['INFO'])
+                [self.check_result['cfchecks'].add(ResultCode.WARNING, msg) for msg in warnings]
+
+            for varname, var in cfres['variables'].items():
+                self.check_result['cfchecks'][varname] = CheckResult(ResultCode.OK)
+                if var['FATAL'] or var['ERROR']:
+                    # treat fatal and errors as error
+                    errors = var['FATAL']
+                    errors.extend(var['ERROR'])
+                    [self.check_result['cfchecks'][varname].add(ResultCode.ERROR, msg) for msg in errors]
+                if var['WARN'] or var['INFO']:
+                    warnings = var['WARN']
+                    warnings.extend(var['INFO'])
+                    [self.check_result['cfchecks'][varname].add(ResultCode.WARNING, msg) for msg in warnings]
+        else:
+            self.check_result['cfchecks'] = CheckResult(ResultCode.WARNING, "cfchecks not performed since the platform is not supported")
+
 
     def _check_coordinates(self):
         """

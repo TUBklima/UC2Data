@@ -1,7 +1,7 @@
 import unittest
 from uc2data.Dataset import *
 from pathlib import Path
-import json
+
 
 class TestCheckResult(unittest.TestCase):
 

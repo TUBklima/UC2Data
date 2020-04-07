@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 
 from setuptools import setup, find_packages
-
+import os
 
 with open('requirements.txt') as f:
     requirements = f.read().splitlines()
+if os.name == 'nt':
+    # install cfchecker on linux and mac systems
+    requirements = [x for x in requirements if not x.startswith('cfchecker')]
 
 with open('README.rst') as f:
     readme = f.read()
