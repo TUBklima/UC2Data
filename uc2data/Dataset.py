@@ -191,6 +191,19 @@ class Dataset:
             return "None"
 
     @cached_property
+    def data_vars(self):
+        tmp = list()
+
+        for var in self.allowed_variables:
+            if var in self.ds.variables:
+                tmp.append(var)
+            for agg in self.allowed_aggregations:
+                if var + "_" + agg in self.ds.variables:
+                    tmp.append(var)
+
+        return tmp
+
+    @cached_property
     def filename(self):
         attrs = ["campaign", "location", "site", "acronym", "data_content", "data_specifier", "origin_time", "version"]
         vals = list()
@@ -434,7 +447,7 @@ class Dataset:
             sort_along = None
             fill_allowed = False
 
-        # standard corrdinate?
+        # standard coordinate?
         elif xy in ["x", "y", "lon", "lat", "E_UTM", "N_UTM"]:
             if self.is_grid:
                 if "ncol" in self.ds.dims:  # pixel-based surfaces
@@ -468,11 +481,18 @@ class Dataset:
         else:
             raise Exception('Unexpected variable: ' + xy)
 
+        if xy.startswith("lon"):
+            rng = [-180.1,180.1]
+        elif xy.startswith("lat"):
+            rng = [-90.1,90.1]
+        else:
+            rng = None
+
         out = CheckResult(ResultCode.OK)
         out["variable"].add(self.check_var(xy, True,
                                            allowed_types=[int, float],
                                            dims=dims, must_be_sorted_along=sort_along, decrease_sort_allowed=True,
-                                           fill_allowed=fill_allowed))
+                                           fill_allowed=fill_allowed, allowed_range=rng))
 
         if out["variable"]:  # if no error yet
 
@@ -630,7 +650,15 @@ class Dataset:
             if -9999 in this_var:  # -9999 must always be the fill value
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' contains -9999. No fill values " +
                            "are allowed for this variables. -9999 is the fixed fill value in UC2 data standard.")
+        else:
+            if -9999 in this_var and "_FillValue" not in this_var.attrs:
+                result.add(ResultCode.ERROR, "Variable '" + varname + "' contains -9999 but does not have the " +
+                           "'_FillValue' attribute. This is required. -9999 is the fixed fill value in the UC2 data standard.")
+            if "_FillValue" in this_var.attrs and this_var.attrs["_FillValue"] != -9999:
+                result.add(ResultCode.ERROR, "The _FillValue attribute of variable '" + varname + "' is set to " +
+                           str(this_var.attrs["_FillValue"]) + ". Must be -9999 (fixed fill value in the UC2 data standard.")  # TODO: What if variable is byte type? no -9999 possible
 
+            # TODO: check if auxiliary coordinate variable MUST HAVE _FillValue (not ALLOWED but REQUIRED)
         return result
 
     def check_var_attr(self, varname, attrname, must_exist, allowed_types=None, allowed_range=None,
