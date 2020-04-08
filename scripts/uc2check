@@ -1,0 +1,138 @@
+import os
+import sys
+import argparse
+import pathlib
+
+import re
+from colorama import Fore
+import json
+from uc2data.Dataset import Dataset
+
+
+def get_args():
+    parser = argparse.ArgumentParser(description="Commandline tool to check files for conformity with the uc2 "
+                                                 "data standard (see http://www.uc2-program.org/uc2_data_standard.pdf)")
+
+    parser.add_argument("path",
+                        help="path to the files to test with the UC2 checker. If path is a directory by default "
+                               "all *.nc files are tested. See pattern and dirpattern to change the default patterns",
+    )
+    parser.add_argument("-r", "--recursive",
+                        help="Recursively tests all directories starting at path. Ignored if path is a file",
+                        action="store_true"
+    )
+    parser.add_argument("-p", "--pattern",
+                        help="Only tests files that match the given pattern. Allowed patterns are python regular "
+                              "expressions",
+                        default=".*\.nc")
+    parser.add_argument("-dp", "--dirpattern",
+                        help="Only includes directories that match the given pattern. Allowed patterns are python regular"
+                             "expressions")
+    parser.add_argument("-c", "--combine",
+                        help="Prints the output only after all files are checked, instead file by file",
+                        action="store_true")
+    parser.add_argument("-np", "--noprogress",
+                        help="Don't print progress information",
+                        action="store_true")
+    parser.add_argument("-j", "--json",
+                        help="Output in json format",
+                        action="store_true")
+    return parser.parse_args()
+
+
+def walk(path, pattern, dirpattern, recursive):
+    for (dirpath, dirnames, filenames) in os.walk(str(path)):
+        for file in filenames:
+            if pattern.match(file):
+                yield pathlib.Path(os.path.join(dirpath, file))
+
+        if not recursive:
+            break
+
+        if dirpattern:
+            dirnames[:] = [dir for dir in dirnames if dirpattern.match(dir)]
+
+
+def main(args):
+    base_path = pathlib.Path(args.path)
+    if not base_path.exists():
+        print(str(base_path)+" does not exist. Abort.", file=sys.stderr)
+        return 1
+
+    if base_path.is_dir():
+        try:
+            pattern = re.compile(args.pattern)
+        except Exception:
+            print(args.pattern+" is not a valid regular expression", file=sys.stderr)
+            return 1
+
+        if args.recursive and args.dirpattern:
+            try:
+                dirpattern = re.compile(args.dirpattern)
+            except Exception:
+                print(args.dirpattern+" is not a valid regular expression", file=sys.stderr)
+                return 1
+        else:
+            dirpattern = None
+        todo = walk(base_path, pattern, dirpattern, recursive=args.recursive)
+    else:
+        todo = [base_path]
+
+    all_ok = True
+    if base_path.is_file():
+        len_base_path = len(str(base_path.absolute().parent))  # show name for single file
+    else:
+        len_base_path = len(str(base_path.absolute()))
+    pp = not args.noprogress  # print progress ?
+
+    res = {}
+
+    for p in todo:
+        pname = str(p.absolute())[len_base_path:]
+        if pp:
+            print("Starting check for : "+str(pname))
+        ds = Dataset(p)
+        ds.uc2_check()
+
+        if args.combine:
+            if args.json:
+                res[pname] = ds.check_result.to_dict()['root']
+            else:
+                res[pname] = str(ds.check_result)
+        else:
+            if args.json:
+                print(json.dumps(ds.check_result.to_dict()['root']))
+            else:
+                print(str(ds.check_result))
+
+        if ds.check_result:
+            if pp:
+                print(f"{Fore.GREEN} {str(pname)} is ok {Fore.RESET}")
+        else:
+            all_ok = False
+            if pp:
+                print(f"{Fore.RED} {str(pname)} is not ok {Fore.RESET}")
+
+    if args.combine:
+        if args.json:
+            print(json.dumps(res))
+        else:
+            for k,v in res.items():
+                print(k)
+                print(v)
+                print()
+
+    if pp and all_ok:
+        print(f"{Fore.GREEN} All files passed {Fore.RESET}")
+    elif pp:
+        print(f"{Fore.RED} Some files contained Errors {Fore.RESET}")
+
+    if all_ok:
+        return 0
+    else:
+        return 1
+
+
+if __name__ == "__main__":
+    args = get_args()
+    sys.exit(main(args))
