@@ -4,7 +4,9 @@ import argparse
 import pathlib
 
 import re
-from colorama import Fore
+from colorama import Fore, init
+if os.name == "nt":
+    init(convert=True)
 import json
 from uc2data.Dataset import Dataset
 
