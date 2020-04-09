@@ -9,8 +9,9 @@ import netCDF4
 import importlib
 import pathlib
 import urllib.request
-from cfchecker import cfchecks
 import os
+if os.name != 'nt':
+    from cfchecker import cfchecks
 from cached_property import cached_property
 from .utils import check_type, check_person_field, compare_utms
 from .Result import ResultCode, CheckResult
