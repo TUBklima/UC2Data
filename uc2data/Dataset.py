@@ -1601,3 +1601,40 @@ class Dataset:
         geo = pyproj.CRS("epsg:4258")
 
         return pyproj.transform(geo, utm, y, x)
+
+    def get_bounds(self, utm=False):
+        """
+        Returns the coordinates of the lower left corner and the coordinates of the upper right corner
+        of the bounding rectangle, and the epsg code for this coordinates
+
+        :param utm: If True return UTM coordinates
+        :return: lower left x, lower left y , upper right x, upper right y, epsg
+        """
+
+        if utm:
+            if self.featuretype != "None":
+                ll_x = self.ds.n_utm.min()
+                ll_y = self.ds.e_utm.min()
+                ur_x = self.ds.n_utm.max()
+                ur_y = self.ds.e_utm.max()
+            else:
+                ll_x = self.ds.n_utm[0, 0]
+                ll_y = self.ds.e_utm[0, 0]
+                ur_x = self.ds.n_utm[-1, -1]
+                ur_y = self.ds.e_utm[-1, -1]
+            epsg = self.ds["crs"].epsg_code.lower()
+        else:
+            if self.featuretype != "None":
+                ll_x = self.ds.lat.min()
+                ll_y = self.ds.lon.min()
+                ur_x = self.ds.lat.max()
+                ur_y = self.ds.lon.max()
+            else:
+                ll_x = self.ds.lat[0, 0]
+                ll_y = self.ds.lon[0, 0]
+                ur_x = self.ds.lat[-1, -1]
+                ur_y = self.ds.lon[-1, -1]
+            epsg="epsg:4258"
+
+        return ll_x, ll_y, ur_x, ur_y,epsg
+
