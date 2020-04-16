@@ -17,12 +17,10 @@ def get_args():
 
     parser.add_argument("path",
                         help="path to the files to test with the UC2 checker. If path is a directory by default "
-                               "all *.nc files are tested. See pattern and dirpattern to change the default patterns",
-    )
+                             "all *.nc files are tested. See pattern and dirpattern to change the default patterns")
     parser.add_argument("-r", "--recursive",
                         help="Recursively tests all directories starting at path. Ignored if path is a file",
-                        action="store_true"
-    )
+                        action="store_true")
     parser.add_argument("-p", "--pattern",
                         help="Only tests files that match the given pattern. Allowed patterns are python regular "
                               "expressions",
