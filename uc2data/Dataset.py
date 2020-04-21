@@ -1613,15 +1613,15 @@ class Dataset:
 
         if utm:
             if self.featuretype != "None":
-                ll_x = self.ds.n_utm.min()
-                ll_y = self.ds.e_utm.min()
-                ur_x = self.ds.n_utm.max()
-                ur_y = self.ds.e_utm.max()
+                ll_x = self.ds.N_UTM.min()
+                ll_y = self.ds.E_UTM.min()
+                ur_x = self.ds.N_UTM.max()
+                ur_y = self.ds.E_UTM.max()
             else:
-                ll_x = self.ds.n_utm[0, 0]
-                ll_y = self.ds.e_utm[0, 0]
-                ur_x = self.ds.n_utm[-1, -1]
-                ur_y = self.ds.e_utm[-1, -1]
+                ll_x = self.ds.N_UTM[0]
+                ll_y = self.ds.E_UTM[0]
+                ur_x = self.ds.N_UTM[-1]
+                ur_y = self.ds.E_UTM[-1]
             epsg = self.ds["crs"].epsg_code.lower()
         else:
             if self.featuretype != "None":
@@ -1636,5 +1636,5 @@ class Dataset:
                 ur_y = self.ds.lon[-1, -1]
             epsg="epsg:4258"
 
-        return ll_x, ll_y, ur_x, ur_y,epsg
+        return ll_x, ll_y, ur_x, ur_y, epsg
 
