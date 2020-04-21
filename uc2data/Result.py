@@ -13,7 +13,7 @@ class ResultCode(enum.Enum):
     OK = 1
     WARNING = 2
     ERROR = 3
-
+    FATAL = 4
 
 class ResultItem:
 
