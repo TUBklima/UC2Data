@@ -130,9 +130,12 @@ class Dataset:
     allowed_licences = [
         "",
         "[UC]2 MOSAIK Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 MOSAIK-2 Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 3DO Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 3DO+M Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 KliMoPrax Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 UseUClim Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
+        "[UC]2 ProPolis Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 Restricted Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 Research Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
         "[UC]2 Open Licence; see [UC]2 data policy available at www.uc2-program.org/uc2_data_policy.pdf",
