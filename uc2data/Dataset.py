@@ -1604,7 +1604,7 @@ class Dataset:
         utm = pyproj.CRS(self.ds["crs"].epsg_code.lower())
         geo = pyproj.CRS("epsg:4258")
 
-        return pyproj.transform(geo, utm, y, x)
+        return pyproj.transform(geo, utm, x, y, always_xy=True)
 
     def get_bounds(self, utm=False):
         """
@@ -1641,7 +1641,8 @@ class Dataset:
             utm = pyproj.CRS(epsg_utm)
             geo = pyproj.CRS(epsg)
 
-            ([ll_y,ur_y], [ll_x,ur_x]) = pyproj.transform(utm, geo, [ll_x_utm, ur_x_utm], [ll_y_utm, ur_y_utm])
+            ([ll_x,ur_x], [ll_y,ur_y]) = pyproj.transform(utm, geo, [ll_x_utm, ur_x_utm], [ll_y_utm, ur_y_utm],
+                                                          always_xy=True)
 
         return ll_x, ll_y, ur_x, ur_y, epsg
 
