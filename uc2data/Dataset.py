@@ -533,7 +533,8 @@ class Dataset:
         self.check_result[xy].add(out)
 
     def check_var(self, varname, must_exist, allowed_types=None, allowed_range: list = None, dims=None,
-                  must_be_sorted_along=None, decrease_sort_allowed=True, fill_allowed=True):
+                  must_be_sorted_along=None, decrease_sort_allowed=True, fill_allowed=True,
+                  no_fill_attr_required=False):
         """
         Checks a NetCDF variable for requested properties
 
@@ -652,9 +653,10 @@ class Dataset:
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' contains -9999. No fill values " +
                            "are allowed for this variables. -9999 is the fixed fill value in UC2 data standard.")
         else:
-            if -9999 in this_var and "_FillValue" not in this_var.attrs:
-                result.add(ResultCode.ERROR, "Variable '" + varname + "' contains -9999 but does not have the " +
-                           "'_FillValue' attribute. This is required. -9999 is the fixed fill value in the UC2 data standard.")
+            if not no_fill_attr_required:
+                if -9999 in this_var and "_FillValue" not in this_var.attrs:
+                    result.add(ResultCode.ERROR, "Variable '" + varname + "' contains -9999 but does not have the " +
+                               "'_FillValue' attribute. This is required. -9999 is the fixed fill value in the UC2 data standard.")
             if "_FillValue" in this_var.attrs and this_var.attrs["_FillValue"] != -9999:
                 result.add(ResultCode.ERROR, "The _FillValue attribute of variable '" + varname + "' is set to " +
                            str(this_var.attrs["_FillValue"]) + ". Must be -9999 (fixed fill value in the UC2 data standard.")  # TODO: What if variable is byte type? no -9999 possible
@@ -1202,7 +1204,9 @@ class Dataset:
                     self.check_result[main_key].add(self.check_var_attr(main_key, "bounds", True,
                                                                         allowed_types=str, allowed_values=ikey))
                     self.check_result[ikey].add(self.check_var(ikey, True, allowed_types=self.ds[main_key].dtype,
-                                                               dims=self.ds[main_key].dims + ("nv",)))
+                                                               dims=self.ds[main_key].dims + ("nv",),
+                                                               no_fill_attr_required=True)
+                                                )
                     if len(self.ds[ikey].attrs) != 0:
                         self.check_result[ikey]["attributes"].add(ResultCode.ERROR,
                                                                   "Variable '" + ikey + "' must not have any attributes.")
@@ -1615,10 +1619,10 @@ class Dataset:
         tmp_n_utm = self.ds.N_UTM.copy()
 
         any_value = tmp_e_utm.values[tmp_e_utm.values != -9999][0]  # the first occurrence of non-FillValue
-        tmp_e_utm = numpy.where(tmp_e_utm.values == tmp_e_utm._FillValue, any_value, tmp_e_utm.values)
+        tmp_e_utm = numpy.where(tmp_e_utm.values == -9999, any_value, tmp_e_utm.values)
 
         any_value = tmp_n_utm.values[tmp_n_utm.values != -9999][0]  # the first occurrence of non-FillValue
-        tmp_n_utm = numpy.where(tmp_n_utm.values == tmp_n_utm._FillValue, any_value, tmp_n_utm.values)
+        tmp_n_utm = numpy.where(tmp_n_utm.values == -9999, any_value, tmp_n_utm.values)
 
         ll_x_utm = tmp_e_utm.min()
         ll_y_utm = tmp_n_utm.min()
