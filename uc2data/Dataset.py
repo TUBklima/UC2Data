@@ -1611,30 +1611,33 @@ class Dataset:
         :return: lower left x, lower left y , upper right x, upper right y, epsg
         """
 
+        tmp_e_utm = self.ds.E_UTM.copy()
+        tmp_n_utm = self.ds.N_UTM.copy()
+
+        any_value = tmp_e_utm.values[tmp_e_utm.values != -9999][0]  # the first occurrence of non-FillValue
+        tmp_e_utm = numpy.where(tmp_e_utm.values == tmp_e_utm._FillValue, any_value, tmp_e_utm.values)
+
+        any_value = tmp_n_utm.values[tmp_n_utm.values != -9999][0]  # the first occurrence of non-FillValue
+        tmp_n_utm = numpy.where(tmp_n_utm.values == tmp_n_utm._FillValue, any_value, tmp_n_utm.values)
+
+        ll_x_utm = tmp_e_utm.min()
+        ll_y_utm = tmp_n_utm.min()
+        ur_x_utm = tmp_e_utm.max()
+        ur_y_utm = tmp_n_utm.max()
+        epsg_utm = self.ds["crs"].epsg_code.lower()
+
         if utm:
-            if self.featuretype != "None":
-                ll_x = self.ds.N_UTM.min()
-                ll_y = self.ds.E_UTM.min()
-                ur_x = self.ds.N_UTM.max()
-                ur_y = self.ds.E_UTM.max()
-            else:
-                ll_x = self.ds.N_UTM[0]
-                ll_y = self.ds.E_UTM[0]
-                ur_x = self.ds.N_UTM[-1]
-                ur_y = self.ds.E_UTM[-1]
-            epsg = self.ds["crs"].epsg_code.lower()
+            ll_x = float(ll_x_utm)
+            ll_y = float(ll_y_utm)
+            ur_x = float(ur_x_utm)
+            ur_y = float(ur_y_utm)
+            epsg = epsg_utm
         else:
-            if self.featuretype != "None":
-                ll_x = self.ds.lat.min()
-                ll_y = self.ds.lon.min()
-                ur_x = self.ds.lat.max()
-                ur_y = self.ds.lon.max()
-            else:
-                ll_x = self.ds.lat[0, 0]
-                ll_y = self.ds.lon[0, 0]
-                ur_x = self.ds.lat[-1, -1]
-                ur_y = self.ds.lon[-1, -1]
-            epsg="epsg:4258"
+            epsg = "epsg:4258"
+            utm = pyproj.CRS(epsg_utm)
+            geo = pyproj.CRS(epsg)
+
+            ([ll_y,ur_y], [ll_x,ur_x]) = pyproj.transform(utm, geo, [ll_x_utm, ur_x_utm], [ll_y_utm, ur_y_utm])
 
         return ll_x, ll_y, ur_x, ur_y, epsg
 
