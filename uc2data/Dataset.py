@@ -152,6 +152,10 @@ class Dataset:
         ----------
         path : str or pathlib.Path
             The path of the file to be read
+
+        Returns
+        -------
+        Dataset: the uc2data.Dataset object. xarray datasets are opened. checks are not done yet
         """
 
         self.path = path
@@ -220,7 +224,7 @@ class Dataset:
         vals = list()
 
         if self.check_result is None:
-            self.uc2_check()
+            self.uc2_check(do_cf_check=False)
 
         for i in attrs:
             if not self.check_result[i]:
@@ -242,11 +246,16 @@ class Dataset:
         return filename
 
 
-    def uc2_check(self):
+    def uc2_check(self, do_cf_check=True):
         """
         Performs all checks of conformity to the UC2 data standard.
 
         The results will be stored in the attribute check_result.
+
+        Parameters
+        ----------
+        do_cf_check : bool, optional
+            Set to False if cf check shall not be done. Default: True
 
         Returns
         -------
@@ -260,7 +269,8 @@ class Dataset:
         # Ensure cf conformance
         ###
 
-        self.cf_check()
+        if do_cf_check:
+            self.check_result["cfchecks"].add(self.cf_check())
 
         ###
         # Check global attributes
@@ -299,36 +309,46 @@ class Dataset:
                                                           "because of error in 'crs' variable.")
 
     def cf_check(self):
+        """
+        Calls the cfchecks.CFChecker.checker function to check the NetCDF file for CF compatibility
+
+        Returns
+        -------
+        CheckResult: the result of the cf-checker as uc2data.CheckResult object
+
+        """
+
         if os.name != 'nt':
             checker = cfchecks.CFChecker(silent=True, version=cfchecks.vn1_7)
             cfres = checker.checker(str(self.path))
 
-            self.check_result['cfchecks'] = CheckResult(ResultCode.OK)
+            out = CheckResult(ResultCode.OK)
 
             if cfres['global']['FATAL'] or cfres['global']['ERROR']:
                 errors = cfres['global']['FATAL']
                 errors.extend(cfres['global']['ERROR'])
-                [self.check_result['cfchecks'].add(ResultCode.ERROR, msg) for msg in errors]
+                [out.add(ResultCode.ERROR, msg) for msg in errors]
 
             if cfres['global']['WARN'] or cfres['global']['INFO']:
                 warnings = cfres['global']['WARN']
                 warnings.extend(cfres['global']['INFO'])
-                [self.check_result['cfchecks'].add(ResultCode.WARNING, msg) for msg in warnings]
+                [out.add(ResultCode.WARNING, msg) for msg in warnings]
 
             for varname, var in cfres['variables'].items():
-                self.check_result['cfchecks'][varname] = CheckResult(ResultCode.OK)
+                out[varname] = CheckResult(ResultCode.OK)
                 if var['FATAL'] or var['ERROR']:
                     # treat fatal and errors as error
                     errors = var['FATAL']
                     errors.extend(var['ERROR'])
-                    [self.check_result['cfchecks'][varname].add(ResultCode.ERROR, msg) for msg in errors]
+                    [out[varname].add(ResultCode.ERROR, msg) for msg in errors]
                 if var['WARN'] or var['INFO']:
                     warnings = var['WARN']
                     warnings.extend(var['INFO'])
-                    [self.check_result['cfchecks'][varname].add(ResultCode.WARNING, msg) for msg in warnings]
+                    [out[varname].add(ResultCode.WARNING, msg) for msg in warnings]
         else:
-            self.check_result['cfchecks'] = CheckResult(ResultCode.WARNING, "cfchecks not performed since Windows is not supported")
+            out = CheckResult(ResultCode.WARNING, "cfchecks not performed since Windows is not supported")
 
+        return out
 
     def _check_coordinates(self):
         """
