@@ -28,13 +28,12 @@ The data itself is represented as an xarray dataset. Access it like this:
 
 ## Check for conformity with [UC]² data standard
 
-`my_dataset.uc2_check()  # do the check`
-
-`print(my_dataset.check_result)  # the results are saved within the dataset's attribute check_result`
-
-`print(my_dataset.check_result.errors)  # get just the errors`
-
-`print(my_dataset.check_result.warnings)  # get just the warnings`
+```python
+my_dataset.uc2_check()  # do the check
+print(my_dataset.check_result)  # the results are saved within the dataset's attribute check_result
+print(my_dataset.check_result.errors)  # get just the errors
+print(my_dataset.check_result.warnings)  # get just the warnings
+```
 
 ### Check multiple files at once
 
