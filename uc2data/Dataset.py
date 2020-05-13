@@ -35,8 +35,11 @@ class Dataset:
         The path of the file that is to be/was read
     check_result : Dataset.CheckResult
         The results of a call to Dataset.uc2_check
-    ds : xarray.Dataset
+    ds : xararay.Dataset
         The representation of the data
+    _ds_unparsed : xarray.Dataset
+        A representation of the data as xarray.Dataset without parsing mask and time values by xarray. Only used
+        for uc2_check() as there the raw data must be checked.
 
     Methods
     -------
@@ -154,8 +157,12 @@ class Dataset:
         self.path = path
         self.check_result = None
 
-        # decode and mask are False for checking file without xarray's interpretation
-        self.ds = xarray.open_dataset(self.path, decode_cf=False, mask_and_scale=False)
+        # ds for regular use
+        self.ds = xarray.open_dataset(self.path, decode_cf=True, mask_and_scale=True)
+
+        # _ds_unparsed: decode and mask are False for checking (uc2_check()) file without xarray's interpretation
+        #               of time and masks
+        self._ds_unparsed = xarray.open_dataset(self.path, decode_cf=False, mask_and_scale=False)
 
     @cached_property
     def is_ts(self):
@@ -175,22 +182,22 @@ class Dataset:
 
     @cached_property
     def is_iop(self):
-        if "campaign" in self.ds.attrs:
-            return self.ds.campaign[:3] == "IOP"
+        if "campaign" in self._ds_unparsed.attrs:
+            return self._ds_unparsed.campaign[:3] == "IOP"
         else:
             return False
 
     @cached_property
     def is_lto(self):
-        if "campaign" in self.ds.attrs:
-            return self.ds.campaign == "LTO"
+        if "campaign" in self._ds_unparsed.attrs:
+            return self._ds_unparsed.campaign == "LTO"
         else:
             return False
 
     @cached_property
     def featuretype(self):
-        if "featureType" in self.ds.attrs:
-            return self.ds.featureType
+        if "featureType" in self._ds_unparsed.attrs:
+            return self._ds_unparsed.featureType
         else:
             return "None"
 
@@ -199,10 +206,10 @@ class Dataset:
         tmp = list()
 
         for var in self.allowed_variables:
-            if var in self.ds.variables:
+            if var in self._ds_unparsed.variables:
                 tmp.append(var)
             for agg in self.allowed_aggregations:
-                if var + "_" + agg in self.ds.variables:
+                if var + "_" + agg in self._ds_unparsed.variables:
                     tmp.append(var)
 
         return tmp
@@ -221,14 +228,14 @@ class Dataset:
                     "Cannot parse filename. Global attribute '" + i + "' did not pass UC2 conformity tests.")
 
             if i == "origin_time":
-                vals.append(self.ds.attrs[i][: 10].replace("-", ""))
+                vals.append(self._ds_unparsed.attrs[i][: 10].replace("-", ""))
             elif i == "version":
-                vals.append(str(self.ds.attrs[i]).zfill(3))
+                vals.append(str(self._ds_unparsed.attrs[i]).zfill(3))
             elif i == "data_specifier":
-                if i in self.ds.attrs.keys():
-                    vals.append(self.ds.attrs[i])
+                if i in self._ds_unparsed.attrs.keys():
+                    vals.append(self._ds_unparsed.attrs[i])
             else:
-                tmp_val = self.ds.attrs[i].replace("-","_").replace(".","_").replace("/","_").replace("\\","_")
+                tmp_val = self._ds_unparsed.attrs[i].replace("-", "_").replace(".", "_").replace("/", "_").replace("\\", "_")
                 vals.append(tmp_val)
 
         filename = "-".join(vals) + ".nc"
@@ -338,10 +345,10 @@ class Dataset:
         # Check if origin_lon/origin_lat matches origin_x/origin_y
         if all([self.check_result["origin_lon"], self.check_result["origin_lat"], self.check_result["origin_x"],
                 self.check_result["origin_y"]]):
-            e_orig_ll, n_orig_ll = self.geo2utm(self.ds.origin_lon, self.ds.origin_lat)
+            e_orig_ll, n_orig_ll = self.geo2utm(self._ds_unparsed.origin_lon, self._ds_unparsed.origin_lat)
 
             self.check_result["origin_coords_match"].add(
-                compare_utms(e_orig_ll, n_orig_ll, self.ds.origin_x, self.ds.origin_y))
+                compare_utms(e_orig_ll, n_orig_ll, self._ds_unparsed.origin_x, self._ds_unparsed.origin_y))
         else:
             self.check_result["origin_coords_match"].add(
                 ResultCode.ERROR, "Cannot check if origin_lon/lat matches origin_x/y because of error "
@@ -356,7 +363,7 @@ class Dataset:
                       ["lons", "lats", "Es_UTM", "Ns_UTM"]]  # coordinates of surfaces
 
         for i_coord in coord_list:
-            if all(elem in self.ds.variables for elem in i_coord):
+            if all(elem in self._ds_unparsed.variables for elem in i_coord):
                 if all(self.check_result[x] for x in i_coord):
                     self.check_result["_".join(i_coord)].add(self._check_geo_vars(*i_coord))
 
@@ -382,16 +389,16 @@ class Dataset:
 
         """
 
-        x = self.ds[lon_name].values.flatten()
-        y = self.ds[lat_name].values.flatten()
-        if self.ds[lon_name].dims != self.ds[eutm_name].dims:  # "inflate" array to y,x dims
+        x = self._ds_unparsed[lon_name].values.flatten()
+        y = self._ds_unparsed[lat_name].values.flatten()
+        if self._ds_unparsed[lon_name].dims != self._ds_unparsed[eutm_name].dims:  # "inflate" array to y,x dims
             # this case is for un-rotated grid with E_UTM(x), N_UTM(y), lon(y,x), lat(y,x)
-            e_utm = numpy.tile(self.ds[eutm_name].values, (self.ds[nutm_name].shape[0], 1))
-            n_utm = numpy.tile(self.ds[nutm_name].values, (self.ds[eutm_name].shape[0], 1))
+            e_utm = numpy.tile(self._ds_unparsed[eutm_name].values, (self._ds_unparsed[nutm_name].shape[0], 1))
+            n_utm = numpy.tile(self._ds_unparsed[nutm_name].values, (self._ds_unparsed[eutm_name].shape[0], 1))
             n_utm = numpy.transpose(n_utm)
         else:
-            e_utm = self.ds[eutm_name].values
-            n_utm = self.ds[nutm_name].values
+            e_utm = self._ds_unparsed[eutm_name].values
+            n_utm = self._ds_unparsed[nutm_name].values
         e_utm = e_utm.flatten()
         n_utm = n_utm.flatten()
 
@@ -454,7 +461,7 @@ class Dataset:
         # standard coordinate?
         elif xy in ["x", "y", "lon", "lat", "E_UTM", "N_UTM"]:
             if self.is_grid:
-                if "ncol" in self.ds.dims:  # pixel-based surfaces
+                if "ncol" in self._ds_unparsed.dims:  # pixel-based surfaces
                     dims = ("nrow", "ncol")
                     sort_along = None
                 else:
@@ -572,7 +579,7 @@ class Dataset:
 
         """
 
-        exists = varname in self.ds.variables
+        exists = varname in self._ds_unparsed.variables
         result = CheckResult(ResultCode.OK)
 
         if not exists:
@@ -581,7 +588,7 @@ class Dataset:
             else:
                 return result
 
-        this_var = self.ds[varname]
+        this_var = self._ds_unparsed[varname]
 
         try:
             if not numpy.all(numpy.isfinite(this_var.values)):
@@ -699,7 +706,7 @@ class Dataset:
 
         """
 
-        exists = attrname in self.ds[varname].attrs
+        exists = attrname in self._ds_unparsed[varname].attrs
         result = CheckResult(ResultCode.OK)
         if not exists:
             if must_exist:
@@ -712,7 +719,7 @@ class Dataset:
                 return CheckResult(ResultCode.ERROR,
                                    "Variable '" + varname + "' has attribute '" + attrname + "' defined. Not allowed.")
 
-        this_value = self.ds[varname].attrs[attrname]
+        this_value = self._ds_unparsed[varname].attrs[attrname]
 
         if allowed_types is not None:
             if not check_type(this_value, allowed_types):
@@ -778,7 +785,7 @@ class Dataset:
 
         """
 
-        exists = attrname in self.ds.attrs
+        exists = attrname in self._ds_unparsed.attrs
         result = CheckResult(ResultCode.OK)
 
         if not exists:
@@ -787,7 +794,7 @@ class Dataset:
             else:
                 return result
 
-        this_value = self.ds.attrs[attrname]
+        this_value = self._ds_unparsed.attrs[attrname]
 
         if allowed_types is not None:
             if not check_type(this_value, allowed_types):
@@ -853,11 +860,11 @@ class Dataset:
             self.check_result["unlimited_dim"].add(ResultCode.ERROR, "Unlimited dimensions not supported.")
         tmp.close()
 
-        if "nv" in self.ds.dims:
-            if self.ds.dims["nv"] != 2:
+        if "nv" in self._ds_unparsed.dims:
+            if self._ds_unparsed.dims["nv"] != 2:
                 self.check_result["nv_is_2"].add(ResultCode.ERROR, "Dimension 'nv' must have size of 2.")
-        if "max_name_len" in self.ds.dims:
-            if self.ds.dims["max_name_len"] != 32:
+        if "max_name_len" in self._ds_unparsed.dims:
+            if self._ds_unparsed.dims["max_name_len"] != 32:
                 self.check_result["max_name_len_is_32"].add(ResultCode.ERROR,
                                                             "Dimension 'max_name_len' must have size of 32.")
 
@@ -897,7 +904,7 @@ class Dataset:
             time_dims = ("traj", "ntime")
             time_dim_name = "ntime"
         else:
-            if "ncol" in self.ds.dims:  # pixel-based surfaces
+            if "ncol" in self._ds_unparsed.dims:  # pixel-based surfaces
                 pass  # TODO: do anything?
             else:  # is grid
                 time_dims = ("time",)
@@ -907,7 +914,7 @@ class Dataset:
             allowed_range = [.001, 86400]
         elif self.is_lto:
             if self.check_result["origin_time"]:
-                ndays = calendar.monthrange(int(self.ds.origin_time[0:4]), int(self.ds.origin_time[5:7]))[1]
+                ndays = calendar.monthrange(int(self._ds_unparsed.origin_time[0:4]), int(self._ds_unparsed.origin_time[5:7]))[1]
                 allowed_range = [.01, ndays * 24 * 60 * 60]
 
         self.check_result["time"]["variable"].add(
@@ -920,15 +927,15 @@ class Dataset:
         # Check that LTO time series have minimum time step of 30 min.
         if self.is_lto:
             if self.check_result["time"]:
-                diff_ok = self.ds["time"].diff(time_dim_name) >= 1800  # is difference ok?
+                diff_ok = self._ds_unparsed["time"].diff(time_dim_name) >= 1800  # is difference ok?
                 # add 1 column to diff_ok because diff is one column shorter than time variable
-                if self.ds["time"].ndim > 1:
+                if self._ds_unparsed["time"].ndim > 1:
                     add_to = numpy.ones((diff_ok.shape[0], 1), dtype=bool)
                     diff_ok = numpy.concatenate((add_to, diff_ok), axis=1)
                 else:
                     add_to = numpy.array([True])
                     diff_ok = numpy.concatenate((add_to, diff_ok))
-                is_valid = numpy.not_equal(self.ds["time"].values, -9999)  # -9999 is excluded from diff check
+                is_valid = numpy.not_equal(self._ds_unparsed["time"].values, -9999)  # -9999 is excluded from diff check
                 if numpy.any(
                         numpy.logical_and(numpy.logical_not(diff_ok), is_valid)):  # if diff not okay and not -9999 -> error
                     self.check_result.add(ResultCode.ERROR, "Minimum time step in LTO must be 30 minutes")
@@ -946,12 +953,12 @@ class Dataset:
             self.check_result["time"]["axis"].add(
                 self.check_var_attr("time", "axis", True, allowed_types=str, allowed_values="T"))
             self.check_result["time"]["fill_values"].add(
-                self.check_var_attr("time", "_FillValue", False, allowed_types=self.ds["time"].dtype,
+                self.check_var_attr("time", "_FillValue", False, allowed_types=self._ds_unparsed["time"].dtype,
                                     must_not_exist=self.is_grid))
             self.check_result["time"]["units"].add(self.check_var_attr("time", "units", True, allowed_types=str,
                                                                        regex="seconds since [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} \+00"))
             if self.check_result["origin_time"] and self.check_result["time"]["units"]:
-                if not self.ds["time"].units.endswith(self.ds.origin_time):
+                if not self._ds_unparsed["time"].units.endswith(self._ds_unparsed.origin_time):
                     self.check_result["time"]["origin_time"].add(ResultCode.ERROR,
                                                                  "Global attribute 'origin_time' does not match units of variable 'time'.")
             # bounds attributes are checked below together with other variables.
@@ -989,9 +996,9 @@ class Dataset:
 
             if self.check_result["z"] and self.check_result["origin_z"]:
                 self.check_result["z"]["standard_name"].add(
-                    self.check_var_attr("z", "standard_name", self.ds.origin_z == 0, allowed_types=str,
+                    self.check_var_attr("z", "standard_name", self._ds_unparsed.origin_z == 0, allowed_types=str,
                                         allowed_values="height_above_mean_sea_level",
-                                        must_not_exist=self.ds.origin_z != 0))
+                                        must_not_exist=self._ds_unparsed.origin_z != 0))
 
         # x, y
         self.check_xy("x")
@@ -1001,7 +1008,7 @@ class Dataset:
         self.check_xy("E_UTM")
         self.check_xy("N_UTM")
 
-        if "s" in self.ds.dims:
+        if "s" in self._ds_unparsed.dims:
             self.check_xy("xs")
             self.check_xy("ys")
             self.check_xy("lons")
@@ -1011,14 +1018,14 @@ class Dataset:
 
         if self.is_grid:
             # if one u is there, all are nedded
-            if any(elem in self.ds.variables for elem in ["xu", "Eu_UTM", "Nu_UTM", "lonu", "latu"]):
+            if any(elem in self._ds_unparsed.variables for elem in ["xu", "Eu_UTM", "Nu_UTM", "lonu", "latu"]):
                 self.check_xy("xu")
                 self.check_xy("Eu_UTM")
                 self.check_xy("Nu_UTM")
                 self.check_xy("latu")
                 self.check_xy("lonu")
             # if one v is there, all are nedded
-            if any(elem in self.ds.variables for elem in ["xv", "Ev_UTM", "Nv_UTM", "lonv", "latv"]):
+            if any(elem in self._ds_unparsed.variables for elem in ["xv", "Ev_UTM", "Nv_UTM", "lonv", "latv"]):
                 self.check_xy("yv")
                 self.check_xy("Ev_UTM")
                 self.check_xy("Nv_UTM")
@@ -1150,20 +1157,20 @@ class Dataset:
         elif self.is_traj:
             data_dims = ("traj", "ntime")
         else:
-            if "ncol" in self.ds.dims:  # pixel-based surfaces
+            if "ncol" in self._ds_unparsed.dims:  # pixel-based surfaces
                 data_dims = ("time", "nrow", "ncol")  # TODO: Wird es erlaubt werden, pixel ohne time abzulegen?
             else:
                 data_dims = None
 
         # get all coordinates that appear in this file
         existing_coordinates = list()
-        for ikey in self.ds.variables:
+        for ikey in self._ds_unparsed.variables:
             if (ikey in known_coordinates) or ikey.startswith("bands_"):
                 if not ikey.endswith("_bounds"):
                    existing_coordinates.append(ikey)
         existing_coordinates.sort()
 
-        for ikey in self.ds.variables:
+        for ikey in self._ds_unparsed.variables:
             if ikey in dont_check:
                 continue
             is_normal = ikey in self.allowed_variables
@@ -1180,26 +1187,26 @@ class Dataset:
 
             if is_bands:
                 # check if this is a coordinate variable or an auxiliary coordinate variable
-                if ikey in self.ds.dims.keys():  # is coordinate variable
+                if ikey in self._ds_unparsed.dims.keys():  # is coordinate variable
                     self.check_result[ikey].add(
                         self.check_var(ikey, True, dims=ikey, fill_allowed=False, must_be_sorted_along=ikey))
                 else:  # is not coordinate variable
-                    if len(self.ds[ikey].dims) != 1:
+                    if len(self._ds_unparsed[ikey].dims) != 1:
                         self.check_result[ikey].add(ResultCode.ERROR, "Variable '" + ikey + "' is expected to be a " +
                                                     "coordinate variable or an auxiliary coordinate variable. This means" +
-                                                    " it must be 1-dimensional. Found dimension: " + str(self.ds[ikey].dims))
+                                                    " it must be 1-dimensional. Found dimension: " + str(self._ds_unparsed[ikey].dims))
                     else:
-                        if not self.ds[ikey].dims[0].startswith("bands_"):
+                        if not self._ds_unparsed[ikey].dims[0].startswith("bands_"):
                             self.check_result[ikey].add(ResultCode.ERROR, "Variable '" + ikey + "' is expected to be a " +
                                                     "coordinate variable or an auxiliary coordinate variable. This means" +
-                                                    " it must follow a 'bands_'-dimension. Found dimension: " + str(self.ds[ikey].dims))
+                                                    " it must follow a 'bands_'-dimension. Found dimension: " + str(self._ds_unparsed[ikey].dims))
                         else:
                             self.check_var(ikey, True)
 
             elif is_bounds:
 
                 main_key = ikey.replace("_bounds", "")
-                if main_key not in self.ds.variables:
+                if main_key not in self._ds_unparsed.variables:
                     self.check_result[ikey].add(ResultCode.ERROR,
                                                 "Variable '" + ikey + "' seems to be a bounds variable " 
                                                                       "but there is no main variable (expected '" +
@@ -1207,17 +1214,17 @@ class Dataset:
                 else:
                     self.check_result[main_key].add(self.check_var_attr(main_key, "bounds", True,
                                                                         allowed_types=str, allowed_values=ikey))
-                    self.check_result[ikey].add(self.check_var(ikey, True, allowed_types=self.ds[main_key].dtype,
-                                                               dims=self.ds[main_key].dims + ("nv",),
+                    self.check_result[ikey].add(self.check_var(ikey, True, allowed_types=self._ds_unparsed[main_key].dtype,
+                                                               dims=self._ds_unparsed[main_key].dims + ("nv",),
                                                                no_fill_attr_required=True)
                                                 )
-                    if len(self.ds[ikey].attrs) != 0:
+                    if len(self._ds_unparsed[ikey].attrs) != 0:
                         self.check_result[ikey]["attributes"].add(ResultCode.ERROR,
                                                                   "Variable '" + ikey + "' must not have any attributes.")
                 # Time must be end of time period
                 if ikey == "time_bounds":
                     if self.check_result[ikey]:
-                        if not self.ds[main_key].equals(self.ds[ikey][..., 1]):
+                        if not self._ds_unparsed[main_key].equals(self._ds_unparsed[ikey][..., 1]):
                             self.check_result[ikey]["variable"].add(ResultCode.ERROR,
                                                                     "second column of 'time_bounds' must equal data of variable 'time'")
                     else:
@@ -1227,10 +1234,10 @@ class Dataset:
                 # z must be in middle of z bounds
                 if ikey == "z_bounds":
                     if self.check_result[ikey]:
-                        z_bound_lower = self.ds[ikey][..., 0]
-                        z_bound_upper = self.ds[ikey][..., 1]
+                        z_bound_lower = self._ds_unparsed[ikey][..., 0]
+                        z_bound_upper = self._ds_unparsed[ikey][..., 1]
                         z_bound_mid = z_bound_lower + (z_bound_upper - z_bound_lower) * 0.5
-                        if not numpy.allclose(self.ds[main_key].values, z_bound_mid.values):
+                        if not numpy.allclose(self._ds_unparsed[main_key].values, z_bound_mid.values):
                             self.check_result[ikey]["variable"].add(ResultCode.ERROR,
                                                                     "values of z must be in the middle between z_bounds.")
                     else:
@@ -1241,13 +1248,13 @@ class Dataset:
             elif is_ancillary:
                 # Check ancillary
                 # This is an inner loop over all variables again, to find the one that references this ancillary variable.
-                for tmpKey in self.ds.variables:
-                    if "ancillary_variables" in self.ds[tmpKey].attrs:
-                        if ikey in self.ds[tmpKey].ancillary_variables.split(" "):
-                            main_var = self.ds[tmpKey]
-                            if main_var.dims != self.ds[ikey].dims:
+                for tmpKey in self._ds_unparsed.variables:
+                    if "ancillary_variables" in self._ds_unparsed[tmpKey].attrs:
+                        if ikey in self._ds_unparsed[tmpKey].ancillary_variables.split(" "):
+                            main_var = self._ds_unparsed[tmpKey]
+                            if main_var.dims != self._ds_unparsed[ikey].dims:
                                 self.check_result.add(ResultCode.ERROR, "Dimensions of ancillary variable '" +
-                                                      ikey + "' (" + str(self.ds[ikey].dims) + ") must be the same " +
+                                                      ikey + "' (" + str(self._ds_unparsed[ikey].dims) + ") must be the same " +
                                                       "as the referencing variable '" + tmpKey + "' (" +
                                                       str(main_var.dims) + ")")
 
@@ -1264,7 +1271,7 @@ class Dataset:
                     data_content_var_names.append(expected_data_content)
 
                 # Check var (depending on whether it has bands_ dim or not
-                dim_start_with_bands = [idim for idim in self.ds[ikey].dims if idim.startswith("bands_")]
+                dim_start_with_bands = [idim for idim in self._ds_unparsed[ikey].dims if idim.startswith("bands_")]
                 if len(dim_start_with_bands) > 1:
                     self.check_result[ikey]["variable"].add(ResultCode.ERROR, "not more than one dimension starting with "+
                                                             "'bands_' allowed in variable.")
@@ -1281,12 +1288,12 @@ class Dataset:
                 self.check_result[ikey]["units"].add(
                     self.check_var_attr(ikey, "units", True, allowed_types=str))  # TODO: check conversion
                 self.check_result[ikey]["_FillValue"].add(
-                    self.check_var_attr(ikey, "_FillValue", True, allowed_types=self.ds[ikey].dtype,
+                    self.check_var_attr(ikey, "_FillValue", True, allowed_types=self._ds_unparsed[ikey].dtype,
                                         allowed_values=-9999))
                 self.check_result[ikey]["coordinates"].add(
                     self.check_var_attr(ikey, "coordinates", True, allowed_types=str))
                 if self.check_result[ikey]["coordinates"]:
-                    this_coords = self.ds[ikey].coordinates.split(" ")
+                    this_coords = self._ds_unparsed[ikey].coordinates.split(" ")
                     this_coords.sort()
 
                     coords_in_var_not_in_file = set(this_coords).difference(set(existing_coordinates))
@@ -1340,23 +1347,23 @@ class Dataset:
                     self.check_result[ikey]["cell_methods"].add(self._check_cell_methods_agg_varname(ikey))
 
                 # check cell_methods if cell_methods in variable attributes
-                if "cell_methods" in self.ds[ikey].attrs:
+                if "cell_methods" in self._ds_unparsed[ikey].attrs:
                     self.check_result[ikey]["cell_methods"].add(self._check_cell_methods_attribute(ikey, is_agg_name))
 
                 # Check ancillary_variables attribute
-                if "ancillary_variables" in self.ds[ikey].attrs:
-                    anc_var = self.ds[ikey].ancillary_variables.split(" ")
+                if "ancillary_variables" in self._ds_unparsed[ikey].attrs:
+                    anc_var = self._ds_unparsed[ikey].ancillary_variables.split(" ")
                     self.check_result[ikey]["ancillary_variables"].add(self.check_var_attr(ikey, "ancillary_variables",
                                                                                            True, allowed_types=str))
                     for i in anc_var:
-                        if i not in self.ds.variables:
+                        if i not in self._ds_unparsed.variables:
                             self.check_result[ikey]["ancillary_variables"].add(ResultCode.ERROR,
                                                                                "Expected ancillary variable '" +
                                                                                i + "' not found in file.")
 
                 # Check bounds attribute
-                if "bounds" in self.ds[ikey].attrs:
-                    if ikey + "_bounds" not in self.ds.variables:
+                if "bounds" in self._ds_unparsed[ikey].attrs:
+                    if ikey + "_bounds" not in self._ds_unparsed.variables:
                         self.check_result[ikey]["bounds"].add(ResultCode.ERROR,
                                                               "Expected variable '" + ikey + "_bounds' not found.")
                     self.check_result[ikey]["bounds"].add(self.check_var_attr(ikey, "bounds", True,
@@ -1366,17 +1373,17 @@ class Dataset:
         if len(data_content_var_names) == 0:
             self.check_result.add(ResultCode.ERROR, "No data variable found.")
         elif len(data_content_var_names) == 1:
-            if self.check_result["data_content"] and self.ds.data_content != data_content_var_names[0]:
+            if self.check_result["data_content"] and self._ds_unparsed.data_content != data_content_var_names[0]:
                 self.check_result["data_content"].add(ResultCode.ERROR, "Only one data variable found. '" +
                                                       data_content_var_names[0] +
                                                       "'. Expected global attribute 'data_content'" +
                                                       " to be '" + data_content_var_names[0] + "'.")
         else:
-            if self.check_result["data_content"] and self.ds.data_content not in self.allowed_data_contents:
+            if self.check_result["data_content"] and self._ds_unparsed.data_content not in self.allowed_data_contents:
                 self.check_result["data_content"].add(ResultCode.ERROR, "Multiple data variables found. "
                                                                         "In this case only one of the allowed"
                                                                         "data_content variable categories must be"
-                                                                        "used. You used '" + self.ds.data_content + "'.")
+                                                                        "used. You used '" + self._ds_unparsed.data_content + "'.")
 
     def check_all_glob_attr(self):
         """
@@ -1449,9 +1456,9 @@ class Dataset:
         self.check_result["site"].add(self.check_glob_attr("site", True, str, allowed_values=Dataset.allowed_sites,
                                                            max_strlen=12)) # TODO: max_strlen gilt nur für UC2 Projekt?
         if self.check_result["location"] and self.check_result["site"]:
-            if Dataset.allowed_locations[Dataset.allowed_sites.index(self.ds.site)] != self.ds.location:
-                self.check_result["site"].add(ResultCode.ERROR, "site '" + self.ds.site +
-                                              "' does not match location '" + self.ds.location + "'")
+            if Dataset.allowed_locations[Dataset.allowed_sites.index(self._ds_unparsed.site)] != self._ds_unparsed.location:
+                self.check_result["site"].add(ResultCode.ERROR, "site '" + self._ds_unparsed.site +
+                                              "' does not match location '" + self._ds_unparsed.location + "'")
 
         self.check_result["institution"].add(
             self.check_glob_attr("institution", True, str, allowed_values=Dataset.allowed_institutions))
@@ -1459,34 +1466,34 @@ class Dataset:
             self.check_glob_attr("acronym", True, str, allowed_values=Dataset.allowed_acronyms,
                                  max_strlen=12)) # TODO: max_strlen gilt nur für UC2 Projekt?
         if self.check_result["institution"] and self.check_result["acronym"]:
-            if Dataset.allowed_acronyms[Dataset.allowed_institutions.index(self.ds.institution)] != \
-                    self.ds.acronym:
-                self.check_result["institution"].add(ResultCode.ERROR, "institution '" + self.ds.institution +
-                                                     "' does not match acronym '" + self.ds.acronym + "'")
+            if Dataset.allowed_acronyms[Dataset.allowed_institutions.index(self._ds_unparsed.institution)] != \
+                    self._ds_unparsed.acronym:
+                self.check_result["institution"].add(ResultCode.ERROR, "institution '" + self._ds_unparsed.institution +
+                                                     "' does not match acronym '" + self._ds_unparsed.acronym + "'")
 
         self.check_result["author"].add(self.check_glob_attr("author", True, str))
         if self.check_result["author"]:
-            if self.ds.author != "":
-                self.check_result["author"].add(check_person_field(self.ds.author, "author"))
+            if self._ds_unparsed.author != "":
+                self.check_result["author"].add(check_person_field(self._ds_unparsed.author, "author"))
 
         self.check_result["contact_person"].add(self.check_glob_attr("contact_person", True, str))
         if self.check_result["contact_person"]:
-            self.check_result["contact_person"].add(check_person_field(self.ds.contact_person, "contact_person"))
+            self.check_result["contact_person"].add(check_person_field(self._ds_unparsed.contact_person, "contact_person"))
 
         self.check_result["campaign"].add(self.check_glob_attr("campaign", True, str, regex="^[A-Za-z0-9\._-]+$",
                                                                max_strlen=12)) # TODO: max_strlen gilt nur für UC2 Projekt?
         if self.check_result["campaign"]:
             if self.is_iop:
                 try:
-                    if (len(self.ds.campaign) != 5) or (not int(self.ds.campaign[3:]) in range(1, 100)):
+                    if (len(self._ds_unparsed.campaign) != 5) or (not int(self._ds_unparsed.campaign[3:]) in range(1, 100)):
                         self.check_result["campaign"].add(ResultCode.ERROR,
                                                           "Global attribute 'campaign': If IOP then string must be IOPxx")
                 except ValueError:
                     self.check_result["campaign"].add(ResultCode.ERROR, "If global attribute 'campaign' starts with " +
                                                       "'IOP' then numbers must follow.")
-            elif self.ds.campaign.startswith("VALR") or self.ds.campaign.startswith("VALM"):
+            elif self._ds_unparsed.campaign.startswith("VALR") or self._ds_unparsed.campaign.startswith("VALM"):
                 try:
-                    if (len(self.ds.campaign) != 6) or (not int(self.ds.campaign[4:]) in range(1, 100)):
+                    if (len(self._ds_unparsed.campaign) != 6) or (not int(self._ds_unparsed.campaign[4:]) in range(1, 100)):
                         self.check_result["campaign"].add(ResultCode.ERROR,
                                                           "Global attribute 'campaign': If VALM/VALR then string must be VALMxx/VALRxx")
                 except ValueError:
@@ -1515,12 +1522,12 @@ class Dataset:
             this_agg_short = varname.split("_")[-1]
             this_agg_cf = self.allowed_aggregations[this_agg_short]
             if not re.match(r".*?\btime\b( )?:( )?" + re.escape(this_agg_cf) + r"\b",
-                            self.ds[varname].cell_methods):
+                            self._ds_unparsed[varname].cell_methods):
                 out[varname]["cell_methods"].add(ResultCode.ERROR,
                                                  "The variable name indicates a " +
                                                  "temporal aggregation. This must be given by cell_methods: " +
                                                  "'time: " + this_agg_cf + "'.")
-            if "time_bounds" not in self.ds.variables:
+            if "time_bounds" not in self._ds_unparsed.variables:
                 out[varname]["cell_methods"].add(ResultCode.ERROR,
                                                  "The variable name indicates a " +
                                                  "temporal aggregation. Therefore the variable " +
@@ -1543,7 +1550,7 @@ class Dataset:
 
         out = CheckResult(ResultCode.OK)
 
-        this_cm = self.ds[varname].cell_methods
+        this_cm = self._ds_unparsed[varname].cell_methods
         if re.match(r".*?\btime\b( )?:", this_cm):  # contains "time:"?
             method = re.match(r".*?\btime\b ?: ?([a-zA-Z]+)", this_cm)  # get method string after "time:"
             if method:
@@ -1573,7 +1580,7 @@ class Dataset:
                             )
 
                 if method != "point":
-                    if "bounds" not in self.ds["time"].attrs:
+                    if "bounds" not in self._ds_unparsed["time"].attrs:
                         out[varname]["cell_methods"].add(
                             ResultCode.ERROR, "Variable '" + varname + "' contains cell methods 'time:...'. A "
                                                                        "variable 'time_bounds' is needed and variable 'time' must contain attribute "
@@ -1605,7 +1612,7 @@ class Dataset:
 
         """
 
-        utm = pyproj.CRS(self.ds["crs"].epsg_code.lower())
+        utm = pyproj.CRS(self._ds_unparsed["crs"].epsg_code.lower())
         geo = pyproj.CRS("epsg:4258")
 
         return pyproj.transform(geo, utm, x, y, always_xy=True)
@@ -1619,8 +1626,8 @@ class Dataset:
         :return: lower left x, lower left y , upper right x, upper right y, epsg
         """
 
-        tmp_e_utm = self.ds.E_UTM.copy()
-        tmp_n_utm = self.ds.N_UTM.copy()
+        tmp_e_utm = self._ds_unparsed.E_UTM.copy()
+        tmp_n_utm = self._ds_unparsed.N_UTM.copy()
 
         any_value = tmp_e_utm.values[tmp_e_utm.values != -9999][0]  # the first occurrence of non-FillValue
         tmp_e_utm = numpy.where(tmp_e_utm.values == -9999, any_value, tmp_e_utm.values)
@@ -1632,7 +1639,7 @@ class Dataset:
         ll_y_utm = tmp_n_utm.min()
         ur_x_utm = tmp_e_utm.max()
         ur_y_utm = tmp_n_utm.max()
-        epsg_utm = self.ds["crs"].epsg_code.lower()
+        epsg_utm = self._ds_unparsed["crs"].epsg_code.lower()
 
         if utm:
             ll_x = float(ll_x_utm)
