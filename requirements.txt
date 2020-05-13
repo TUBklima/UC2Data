@@ -1,4 +1,4 @@
-pyproj
+pyproj>=2.2.0
 xarray
 numpy
 cached_property
