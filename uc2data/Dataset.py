@@ -1159,7 +1159,8 @@ class Dataset:
         existing_coordinates = list()
         for ikey in self.ds.variables:
             if (ikey in known_coordinates) or ikey.startswith("bands_"):
-                existing_coordinates.append(ikey)
+                if not ikey.endswith("_bounds"):
+                   existing_coordinates.append(ikey)
         existing_coordinates.sort()
 
         for ikey in self.ds.variables:

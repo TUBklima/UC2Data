@@ -11,7 +11,13 @@ def check_multi(folder):
         try:
             i_data = Dataset(path)
             i_data.uc2_check()
-            print_me = str(i_data.check_result.errors) + str(i_data.check_result.warnings)
+            print_me_err = str(i_data.check_result.errors)
+            print_me_warn = str(i_data.check_result.warnings)
+            if print_me_err != "" and print_me_warn != "":
+                connect = "\n"
+            else:
+                connect = ""
+            print_me = print_me_err + connect + print_me_warn
         except Exception:
             print_me = "Could not read file: "+str(path)
 
