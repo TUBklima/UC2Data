@@ -13,6 +13,13 @@ The following line should do the job
 
 `my_dataset = uc2data.Dataset(filename)`
 
+or better:
+
+```python
+with uc2data.Dataset(filename) as my_dataset:
+  # do something the my_dataset
+```
+
 ## Access data in the file
 
 The data itself is represented as an xarray dataset. Access it like this:
