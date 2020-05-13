@@ -17,7 +17,7 @@ with open('LICENSE') as f:
 
 setup(
     name='uc2data',
-    version='0.3.0',
+    version='0.3.1',
     description='Package for working with netCDF files following the [UC]² data standard',
     long_description=readme,
     author='Achim Holtmann, Tom Grassmann',

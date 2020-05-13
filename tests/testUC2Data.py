@@ -32,7 +32,8 @@ class TestCheckResult(unittest.TestCase):
 
 
     def test_ok_files_pass(self):
-        files = ["grid", "timeSeries", "timeSeriesProfile", "trajectory"]
+        files = ["DS_example_" +
+                 x for x in ["ancillary_flags","multidim","spectral","timeseries","timeseriesprofile","trajectory"]]
         for fn in files:
             fn = self.file_dir / (fn + ".nc")
 
@@ -40,13 +41,11 @@ class TestCheckResult(unittest.TestCase):
             data.uc2_check()
             self.assertTrue(data.check_result)
             self.assertTrue(len(data.check_result.errors) == 0)
+            self.assertTrue(len(data.check_result.warnings) == 0)
 
             bounds = data.get_bounds()
 
             bounds_utm = data.get_bounds(utm=True)
-
-            warn = data.check_result.warnings
-            # TODO: Check that no warnings (currently there is one in origin lon/lat vs x/y in timeSeries.nc
 
             self.assertTrue(type(data.filename) == str)
 
