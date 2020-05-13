@@ -37,23 +37,25 @@ class TestCheckResult(unittest.TestCase):
         for fn in files:
             fn = self.file_dir / (fn + ".nc")
 
-            data = Dataset(fn)
-            data.uc2_check()
-            self.assertTrue(data.check_result)
-            self.assertTrue(len(data.check_result.errors) == 0)
-            self.assertTrue(len(data.check_result.warnings) == 0)
+            with Dataset(fn) as data:
+                data.uc2_check()
+                print(data.filename)
+                self.assertTrue(data.check_result)
+                self.assertTrue(len(data.check_result.errors) == 0)
+                self.assertTrue(len(data.check_result.warnings) == 0)
 
-            bounds = data.get_bounds()
+                bounds = data.get_bounds()
 
-            bounds_utm = data.get_bounds(utm=True)
+                bounds_utm = data.get_bounds(utm=True)
 
-            self.assertTrue(type(data.filename) == str)
+                self.assertTrue(type(data.filename) == str)
 
     def test_nonsense_fails(self):
         fn = self.file_dir / "nonsense.nc"
-        data = Dataset(fn)
-        data.uc2_check()
-        self.assertFalse(data.check_result)
+        with Dataset(fn) as data:
+            print(data.path)
+            data.uc2_check()
+            self.assertFalse(data.check_result)
 
 
 if __name__ == '__main__':
