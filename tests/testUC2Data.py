@@ -24,10 +24,14 @@ class TestCheckResult(unittest.TestCase):
         a['W1'].add(ResultCode.WARNING, "This is a Warning")
         a['O1'].add(ResultCode.OK)
         x = a.to_dict(sort=True)
-        exp = {"root": {"ERROR": [{"E1": ["E1 is wrong", "E1 is still wrong", {"E1.1": ["E1.1 is also wrong"]}]}], "WARNING": [{"W1": ["This is a Warning"]}], "OK": [{"O1": ["Test passed."]}]}}
+        exp = {"root": {"FATAL": [],
+                        "ERROR": [{"E1": ["E1 is wrong", "E1 is still wrong", {"E1.1": ["E1.1 is also wrong"]}]}],
+                        "WARNING": [{"W1": ["This is a Warning"]}],
+                        "OK": [{"O1": ["Test passed."]}]}}
         self.assertDictEqual(x, exp)
         x = a.to_dict()
-        exp = {"root": [{"E1": ["E1 is wrong (ResultCode.ERROR)", "E1 is still wrong (ResultCode.ERROR)", {"E1.1": ["E1.1 is also wrong (ResultCode.ERROR)"]}]}, {"W1": ["This is a Warning (ResultCode.WARNING)"]}, {"O1": ["Test passed. (ResultCode.OK)"]}]}
+        exp = {"root": [{"E1": ["E1 is wrong (ERROR)", "E1 is still wrong (ERROR)", {"E1.1": ["E1.1 is also wrong (ERROR)"]}]},
+                        {"W1": ["This is a Warning (WARNING)"]}, {"O1": ["Test passed. (OK)"]}]}
         self.assertDictEqual(x, exp)
 
 
@@ -39,7 +43,6 @@ class TestCheckResult(unittest.TestCase):
 
             with Dataset(fn) as data:
                 data.uc2_check()
-                print(data.filename)
                 self.assertTrue(data.check_result)
                 self.assertTrue(len(data.check_result.errors) == 0)
                 self.assertTrue(len(data.check_result.warnings) == 0)
@@ -53,7 +56,6 @@ class TestCheckResult(unittest.TestCase):
     def test_nonsense_fails(self):
         fn = self.file_dir / "nonsense.nc"
         with Dataset(fn) as data:
-            print(data.path)
             data.uc2_check()
             self.assertFalse(data.check_result)
 
