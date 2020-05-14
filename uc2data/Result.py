@@ -15,6 +15,16 @@ class ResultCode(enum.Enum):
     ERROR = 3
     FATAL = 4
 
+    def __str__(self):
+        if self == ResultCode.OK:
+            return "OK"
+        elif self == ResultCode.WARNING:
+            return "WARNING"
+        elif self == ResultCode.ERROR:
+            return "ERROR"
+        elif self == ResultCode.FATAL:
+            return "FATAL"
+
 class ResultItem:
 
     """
@@ -331,9 +341,23 @@ class CheckResult(OrderedDict):
             if full:
                 outfile.write(self.__repr__())
             else:
-                outfile.write(str(self.warnings))
-                outfile.write("\n")
-                outfile.write(str(self.errors))
+                fat_str = str(self.fatals)
+                err_str = str(self.errors)
+                warn_str = str(self.warnings)
+
+                print_me = ""
+                if fat_str != "":
+                    print_me += fat_str
+                if err_str != "":
+                    if fat_str != "":
+                        print_me += "\n"
+                    print_me += err_str
+                if warn_str != "":
+                    if err_str != "":
+                        print_me += "\n"
+                    print_me += warn_str
+
+                outfile.write(print_me)
 
     @property
     def fatals(self):

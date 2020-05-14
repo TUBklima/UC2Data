@@ -588,7 +588,7 @@ class Dataset:
         must_exist : bool
             whether the variable needs to be present
         allowed_types : Union[str, Iterable], optional
-            str or list of types that are allowed. If float then any Python/numpy float allowed. If int then any
+            type or list of types that are allowed. If float then any Python/numpy float allowed. If int then any
             Python/numpy int allowed
         allowed_range : list, optional
             two-element list as [min, max] of allowed range
@@ -635,8 +635,8 @@ class Dataset:
 
             if not check_type(this_var, allowed_types):
                 result.add(ResultCode.ERROR, "Variable '" + varname + "' has wrong type. " +
-                           "Should be one of the following: " + str(allowed_types) + ". " +
-                           "Found type: " + str(this_var.dtype))
+                           "Should be one of the following: " + ", ".join([i.__name__ for i in [allowed_types]]) + ". " +
+                           "Found type: " + this_var.dtype.__name__)
 
         if allowed_range is not None:
             if "_FillValue" in this_var.attrs:
@@ -758,7 +758,8 @@ class Dataset:
             if not check_type(this_value, allowed_types):
                 result.add(ResultCode.ERROR,
                            "Variable '" + varname + "': Required variable attribute '" + attrname + "' has wrong type. Should be " +
-                           "one of the following: " + str(allowed_types) + ". Found type: " + str(type(this_value)))
+                           "one of the following: " + ", ".join([i.__name__ for i in [allowed_types]]) + ". Found type: " +
+                           type(this_value).__name__)
                 return result
 
         if allowed_values is not None:
@@ -832,8 +833,8 @@ class Dataset:
         if allowed_types is not None:
             if not check_type(this_value, allowed_types):
                 result.add(ResultCode.ERROR, "Global attribute '" + attrname + "' has wrong type. " +
-                           "Should be one of the following: " + str(allowed_types) + ". " +
-                           "Found type: " + str(type(this_value)))
+                           "Should be one of the following: " + ", ".join([i.__name__ for i in [allowed_types]]) + ". " +
+                           "Found type: " + type(this_value).__name__)
                 return result
 
         if not numpy.isscalar(this_value):
