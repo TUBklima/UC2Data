@@ -30,8 +30,8 @@ class TestCheckResult(unittest.TestCase):
                         "OK": [{"O1": ["Test passed."]}]}}
         self.assertDictEqual(x, exp)
         x = a.to_dict()
-        exp = {"root": [{"E1": ["E1 is wrong (ResultCode.ERROR)", "E1 is still wrong (ResultCode.ERROR)", {"E1.1": ["E1.1 is also wrong (ResultCode.ERROR)"]}]},
-                        {"W1": ["This is a Warning (ResultCode.WARNING)"]}, {"O1": ["Test passed. (ResultCode.OK)"]}]}
+        exp = {"root": [{"E1": ["E1 is wrong (ERROR)", "E1 is still wrong (ERROR)", {"E1.1": ["E1.1 is also wrong (ERROR)"]}]},
+                        {"W1": ["This is a Warning (WARNING)"]}, {"O1": ["Test passed. (OK)"]}]}
         self.assertDictEqual(x, exp)
 
 

@@ -73,6 +73,8 @@ class ResultItem:
 
         return self.code != ResultCode.ERROR and self.code != ResultCode.FATAL
 
+    def __str__(self):
+        return self.message + " (" + str(self.code) + ")"
 
 class CheckResult(OrderedDict):
 
@@ -317,7 +319,7 @@ class CheckResult(OrderedDict):
 
         out = list()
         for i in self.result:
-            out.append(i.message + " (" + str(i.code) + ")")
+            out.append(str(i))
 
         for k, v in self.items():
             out.append("[ " + k + " ]")
