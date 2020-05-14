@@ -35,7 +35,7 @@ class Dataset:
         The path of the file that is to be/was read
     check_result : Dataset.CheckResult
         The results of a call to Dataset.uc2_check
-    ds : xararay.Dataset
+    ds : xarray.Dataset
         The representation of the data
     _ds_unparsed : xarray.Dataset
         A representation of the data as xarray.Dataset without parsing mask and time values by xarray. Only used
