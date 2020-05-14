@@ -15,6 +15,16 @@ class ResultCode(enum.Enum):
     ERROR = 3
     FATAL = 4
 
+    def __str__(self):
+        if self == ResultCode.OK:
+            return "OK"
+        elif self == ResultCode.WARNING:
+            return "WARNING"
+        elif self == ResultCode.ERROR:
+            return "ERROR"
+        elif self == ResultCode.FATAL:
+            return "FATAL"
+
 class ResultItem:
 
     """
@@ -22,28 +32,28 @@ class ResultItem:
 
     Attributes
     ----------
-    result : ResultCode
+    code : ResultCode
         Whether the check was OK or resulted in a warning or error
     message : str
         A message for the user
 
     """
 
-    def __init__(self, result: ResultCode = ResultCode.OK, message: str = ""):
+    def __init__(self, code: ResultCode = ResultCode.OK, message: str = ""):
 
         """
         Creates a ResultItem object
 
         Parameters
         ----------
-        result : ResultCode
+        code : ResultCode
             Whether the check was OK or resulted in a warning or error. Default: OK
         message : str
             A message for the user. Only applies if result is not OK. Default: "Test passed."
         """
 
-        self.result = result
-        if result == ResultCode.OK:
+        self.code = code
+        if code == ResultCode.OK:
             if message != "":
                 raise Exception("cannot handle user message for ResultCode.OK")
             self.message = "Test passed."
@@ -61,8 +71,10 @@ class ResultItem:
 
         """
 
-        return self.result != ResultCode.ERROR
+        return self.code != ResultCode.ERROR and self.code != ResultCode.FATAL
 
+    def __str__(self):
+        return self.message + " (" + str(self.code) + ")"
 
 class CheckResult(OrderedDict):
 
@@ -75,8 +87,8 @@ class CheckResult(OrderedDict):
 
     Attributes
     ----------
-    result : ResultItem
-        Whether the test was passed or generated a warning/error. Includes a message for the user.
+    result : list
+        List of ResultItems whether the test was passed or generated a warning/error. Includes a message for the user.
 
     """
 
@@ -104,7 +116,7 @@ class CheckResult(OrderedDict):
 
         Parameters
         ----------
-        item
+        item : str
             name of the tag to get the results for
         """
 
@@ -135,6 +147,46 @@ class CheckResult(OrderedDict):
 
         return True
 
+    def contains_fatals(self):
+
+        """
+        Returns True if there were FATALs within the object.
+        """
+
+        if len(self.result) == 0:
+            has_fat = False
+        else:
+            has_fat = any([ir.code == ResultCode.FATAL for ir in self.result])  # This checks the unnested results
+
+        if has_fat:
+            return has_fat
+
+        for val in self.values():
+            if val.contains_fatals():
+                return True
+
+        return False
+
+    def contains_errors(self):
+
+        """
+        Returns True if there were ERRORs within the object.
+        """
+
+        if len(self.result) == 0:
+            has_err = False
+        else:
+            has_err = any([ir.code == ResultCode.ERROR for ir in self.result])  # This checks the unnested results
+
+        if has_err:
+            return has_err
+
+        for val in self.values():
+            if val.contains_errors():
+                return True
+
+        return False
+
     def contains_warnings(self):
 
         """
@@ -144,7 +196,7 @@ class CheckResult(OrderedDict):
         if len(self.result) == 0:
             has_warn = False
         else:
-            has_warn = any([ir.result == ResultCode.WARNING for ir in self.result])  # This checks the unnested results
+            has_warn = any([ir.code == ResultCode.WARNING for ir in self.result])  # This checks the unnested results
 
         if has_warn:
             return has_warn
@@ -167,7 +219,7 @@ class CheckResult(OrderedDict):
         Parameters
         ----------
         result : Union[ResultCode, ResultItem, CheckResult]
-            If result is of type ResultItem then message parameter is ignored
+            If result is of type ResultItem or CheckResult then message parameter is ignored
         message : str
             passed on to add method for initialization with a specific result
 
@@ -195,14 +247,14 @@ class CheckResult(OrderedDict):
             other = result
 
         if isinstance(other, ResultItem):
-            if other.result == ResultCode.OK:
+            if other.code == ResultCode.OK:
                 if len(self.result) == 0:
                     self.result.append(other)  # no result yet? => add this one
                 else:
-                    return  # There are ERRORs or WARNINGs in result. => not OK, If OK => stays OK
+                    return  # There are FATALS, ERRORs or WARNINGs in result. => not OK, If OK => stays OK
             else:
                 for i in self.result:
-                    if i.result == ResultCode.OK:
+                    if i.code == ResultCode.OK:
                         self.result.remove(i)  # remove OK from result because ERROR is added.
                 self.result.append(other)
 
@@ -212,27 +264,37 @@ class CheckResult(OrderedDict):
             for key, value in other.items():
                 self[key].add(value)  # add each nested results of the other object
         else:
-            raise Exception("unexpected type of other")
+            raise Exception("unexpected type argument to add")
 
     def to_dict(self, sort=False):
         """
         Convert the check result to a nested dictionary
 
-        :param sort: Have extra dictionaries for ERROR, WARNING, and OK
-        :return:
+        Parameters
+        ----------
+        sort : bool, optional
+            Have extra dictionaries for FATAL, ERROR, WARNING, and OK
+
+        Returns
+        -------
+        None
         """
         if sort:
-            root = {'root': {'ERROR': list(), 'WARNING': list(), 'OK': list()}}
+            root = {'root': {'FATAL': list(), 'ERROR': list(), 'WARNING': list(), 'OK': list()}}
             for i in self.result:
-                if i.result == ResultCode.ERROR:
+                if i.code == ResultCode.FATAL:
+                    root['root']['FATAL'].append(i.message)
+                elif i.code == ResultCode.ERROR:
                     root['root']['ERROR'].append(i.message)
-                elif i.result == ResultCode.WARNING:
+                elif i.code == ResultCode.WARNING:
                     root['root']['WARNING'].append(i.message)
-                elif i.result == ResultCode.OK:
+                elif i.code == ResultCode.OK:
                     root['root']['OK'].append(i.message)
 
             for k, v in self.items():
                 rec_dict = v.to_dict(sort=True)
+                if rec_dict['root']['FATAL']:
+                    root['root']['FATAL'].append({k: rec_dict['root']['FATAL']})
                 if rec_dict['root']['ERROR']:
                     root['root']['ERROR'].append({k: rec_dict['root']['ERROR']})
                 if rec_dict['root']['WARNING']:
@@ -242,7 +304,7 @@ class CheckResult(OrderedDict):
         else:
             root = {'root': list() }
             for i in self.result:
-                root['root'].append(i.message + " (" + str(i.result) + ")")
+                root['root'].append(i.message + " (" + str(i.code) + ")")
 
             for k, v in self.items():
                 rec_dict = v.to_dict()
@@ -257,7 +319,7 @@ class CheckResult(OrderedDict):
 
         out = list()
         for i in self.result:
-            out.append(i.message + " (" + str(i.result) + ")")
+            out.append(str(i))
 
         for k, v in self.items():
             out.append("[ " + k + " ]")
@@ -281,20 +343,34 @@ class CheckResult(OrderedDict):
             if full:
                 outfile.write(self.__repr__())
             else:
-                outfile.write(str(self.warnings))
-                outfile.write("\n")
-                outfile.write(str(self.errors))
+                fat_str = str(self.fatals)
+                err_str = str(self.errors)
+                warn_str = str(self.warnings)
+
+                print_me = ""
+                if fat_str != "":
+                    print_me += fat_str
+                if err_str != "":
+                    if fat_str != "":
+                        print_me += "\n"
+                    print_me += err_str
+                if warn_str != "":
+                    if err_str != "":
+                        print_me += "\n"
+                    print_me += warn_str
+
+                outfile.write(print_me)
 
     @property
-    def warnings(self):
+    def fatals(self):
         out = CheckResult()
         for i in self.result:
-            if i.result == ResultCode.WARNING:
+            if i.code == ResultCode.FATAL:
                 out.add(i)
 
         for k, v in self.items():
-            if v.contains_warnings():
-                out[k].add(v.warnings)
+            if v.contains_fatals():
+                out[k].add(v.fatals)
 
         return out
 
@@ -302,11 +378,24 @@ class CheckResult(OrderedDict):
     def errors(self):
         out = CheckResult()
         for i in self.result:
-            if not i:
+            if i.code == ResultCode.ERROR:
                 out.add(i)
 
         for k, v in self.items():
-            if not v:
+            if v.contains_errors():
                 out[k].add(v.errors)
+
+        return out
+
+    @property
+    def warnings(self):
+        out = CheckResult()
+        for i in self.result:
+            if i.code == ResultCode.WARNING:
+                out.add(i)
+
+        for k, v in self.items():
+            if v.contains_warnings():
+                out[k].add(v.warnings)
 
         return out
